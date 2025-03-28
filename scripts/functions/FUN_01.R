@@ -29,9 +29,14 @@ conflicted::conflicts_prefer(
 ls_conflicted_01 <- conflicted::conflict_scout()
 
 # Options ----
+## Furrr
 furrr_options(seed = TRUE,
               scheduling = Inf)
 options(knitr.kable.NA = '') # empty space in cells with NAs in kable
+
+## Markdown ----
+options(knitr.kable.NA = '',     # empty space in cells with NAs in kable
+        scipen = 999)            # non-academic format of numbers
 
 ## Possibly ----
 
@@ -51,6 +56,14 @@ median_cl_boot <- function(x, conf = 0.95) {
   data.frame(y = median(x), ymin = quantile(bt$t, lconf), ymax = quantile(bt$t, 
                                                                           uconf))
 }
+
+# Figures ----
+## Theme ----
+# Theme for ggplot
+theme_grey() + theme(plot.title = element_text(hjust = 0.5, size = 20,face="bold"),
+                     plot.subtitle = element_text(size=15,face="italic"),
+                     axis.title = element_text(size=12,face = "bold")) %>% 
+  theme_set()
 
 # Tables ----
 ## skimr ----

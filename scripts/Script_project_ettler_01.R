@@ -43,49 +43,7 @@ back_up("scripts/functions/FUN_01.R") # the the destination subdirectory specify
 back_up("scripts/functions/OBJ_01.R") # the the destination subdirectory specify using 'path_dest'
 back_up("scripts/Script_project_ettler_01.R") # the the destination subdirectory specify using 'path_dest'
 
-# Theme for ggplot
-theme_grey() + theme(plot.title = element_text(hjust = 0.5, size = 20,face="bold"),
-                                 plot.subtitle = element_text(size=15,face="italic"),
-                                 axis.title = element_text(size=12,face = "bold")) %>% 
-  theme_set()
 
-## Conflicted functions ----
-conflicted_functions <- conflicted::conflict_scout() 
-
-# set up preferences
-conflicted::conflicts_prefer(dplyr::filter)
-conflicted::conflicts_prefer(dplyr::select)
-conflicted::conflicts_prefer(dplyr::mutate)
-conflicted::conflicts_prefer(dplyr::rename)
-conflicted::conflicts_prefer(dplyr::summarize)
-
-# Options ----
-furrr_options(seed = TRUE,
-              scheduling = Inf)
-options(knitr.kable.NA = '') # empty space in cells with NAs in kable
-## without scientific format
-options(scipen=999)
-
-# Okabe & Ito palette - colorblind palette
-pal_okabe_ito <- colorblind_pal()(8)[2:8] # ggthemes
-
-
-#Data manipulation ----
-# data
-df_batch1 <- 
-#  %>% labelled::remove_attributes(c("label")) # "label" describes type of attributes -attr(*,"label") = ...
-  
-# import multiple sheets from .xlsx
-  import_list("*.xlsx") %>% list2env(envir = .GlobalEnv)
-
-
-
-
-
-
-# Markdown ----
-options(knitr.kable.NA = '',     # empty space in cells with NAs in kable
-        scipen = 999)            # non-academic format of numbers
 # Save to .RData
 save(xx1,
      file = "reports/markD_01.RData")
