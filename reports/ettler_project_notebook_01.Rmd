@@ -1,0 +1,87 @@
+---
+title: "Adverse effect of bexaroten therapy in T-lymphom "
+author: "Jiri Baloun"
+date: "Compiled on: **2025-04-01**  <br> Last updated **`r format(Sys.time(), '%Y-%m-%d')`**"
+output: html_notebook
+---
+
+```{=html}
+<style type="text/css">
+.title {
+  text-align: center;
+}
+.author {
+  font-size: 30px;
+  text-align: center;
+  font-style: italic;
+  font-weight: 300;
+}
+.date {
+  font-weight: 300;
+}
+h1, h2, h3, h4 {
+    font-weight: 600;
+    margin-top: 2em;
+}
+body {text-align: justify}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 14px;
+    border-left: 5px solid #eee;
+}
+p {
+  text-indent: 2rem;
+}
+table {
+    width:100%;
+}
+.main-container {
+  max-width: 100% !important;
+  margin: auto;
+}
+img{
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+.boxBorder {
+     border: 2px solid #990066;
+     padding: 10px;
+     outline: #990066 solid 5px;
+     outline-offset: 5px;
+   }
+</style>
+```
+
+
+# Questions
+  - [ ] In "AE Grade 3 / 4" (AN column of the provided excel), there is complete information of AE with hyperTAG. However, there is a column  with the same name and binominal values. Could I use this column?
+  - [ ] Is the occurance of hyperTAG before bexarten the same as dyslipidimia occurence? Column AK in the excel table
+  - [ ] Is the EA connected to monotherapy? If monotherapy works, AE also occures?
+  
+  
+
+
+```{r}
+
+```
+
+
+
+
+
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
