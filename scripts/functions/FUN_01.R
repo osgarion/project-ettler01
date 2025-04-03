@@ -3,7 +3,8 @@
 pacman::p_load(update = T,  
                equatiomatic, beepr, tictoc, 
                tidyverse, purrr, furrr, easystats, rio, janitor, ggthemes, car,
-               gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels
+               gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels,
+               psych, paletteer, ComplexHeatmap
                
 )
 ## function specification ----
