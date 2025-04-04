@@ -45,7 +45,7 @@ back_up("scripts/Script_project_ettler_01.R") # the the destination subdirectory
 
 
 # Save to .RData
-save(xx1,
+save(d01,res_logist_tab_01, legend,
      file = "reports/markD_01.RData")
 save.image("reports/markD_01.RData")
 # Save the tables into data/tables.RData by listing them individually
@@ -76,6 +76,8 @@ d02 |>
 
 
 # Baloonplot
+# tiff("output/figures/250403_eda_baloonplot_01.tiff", width = 8, height = 8, 
+#      units = "in", res = 300, bg = "white")
 d02_binary |> 
   pivot_longer(cols = c("ae_grade_3_4","ae_hyperTAG_grade_3_4","ae_liver",
                         "discontinued_due_to_ae", "ae_liver", "ae_hemato"),
@@ -96,6 +98,7 @@ d02_binary |>
   column_to_rownames("ea") |> 
   ggballoonplot(fill = "value") +
   scale_fill_viridis_c(option = "C")
+# dev.off()
 
 
 ## Correlation ----
@@ -119,7 +122,7 @@ d02_binary |>
 
 ## Clustering ----
 
-test <- d02_binary |> 
+fig_heatmap_bin_01 <- d02_binary |> 
   pivot_longer(cols = c("ae_grade_3_4","ae_hyperTAG_grade_3_4","ae_liver",
                         "discontinued_due_to_ae", "ae_liver", "ae_hemato"),
                names_to = "ae_name",
@@ -127,18 +130,38 @@ test <- d02_binary |>
   na.omit() |> 
   relocate(ae_value) |> 
   group_by(ae_name) |> 
-  nest()
-  
- data <- test$data[[1]] 
-  
-dend1 = cluster_between_groups(m, fa)
- 
- 
+  nest() |> 
+  mutate(fig = map2(data, ae_name, ~heatmap_bin(df = .x, name_ae = .y)))
 
-res_dist_mat <- dist(d02 |> 
-                       select(), method = "binary")
-res_hclust_obj <- hclust(res_dist_mat)
-plot(res_hclust_obj)
+walk(test$fig, print)
+
+### Save ----
+# Directory to save the SVG files
+output_dir <- "F:/Analysis/github/project-ettler01/output/figures/250404_heatmaps"
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir)
+}
+
+fig_heatmap_bin_01 %>%
+  rowwise() %>%
+  mutate(
+    file_name = paste(ae_name),
+    # file_path = file.path(output_dir, paste0(file_name, ".svg"))
+    file_path = file.path(output_dir, paste0(file_name, ".tiff"))
+  ) %>%
+  ungroup() %>% # Remove rowwise grouping
+  select(fig, file_path) %>% # Keep only necessary columns
+  pwalk(function(fig, file_path) {
+    ## using ggsave - works onyl with "ggplot" of "gg" classes
+    # ggsave(file_path, plot = fig, device = "svg", width = 8, height = 6)
+    # ggsave(file_path, plot = fig, device = "tiff", width = 8, height = 6, dpi = 300)
+    tiff(file_path, width = 8, height = 8, units = "in", res = 300)
+    ComplexHeatmap::draw(fig)
+    dev.off()
+  })
+
+## Visualization Ideas
+ComplexUpset::upset(d02_binary, intersect = d02_binary |> names())
 
 
 # Statistics ----
@@ -167,4 +190,124 @@ fviz_ellipses(res_mca, c("sex", "ae_grade_3_4"),
               geom = "point")
 dimdesc(res_mca, axes = c(1,2))
 
+## Univariate & Multivariable logistic regression ----
+tic()
+Sys.time()
+no_cores <- availableCores() - 1
+cluster <- new_cluster(no_cores)
+cluster_library(cluster, "MASS") |> cluster_library("data.table") |> 
+  cluster_library("tidyverse") |> cluster_library("gtsummary")
+cluster_copy(cluster, 'tab_logist_anal') |> 
+  cluster_copy('tab_logist_anal_uva')
+
+res_logist_tab_01 <- d02 |>
+  mutate(sex = case_when(
+    sex == "F" ~ 0,
+    TRUE ~ 1
+  )) |> 
+  pivot_longer(cols = c("ae_grade_3_4","ae_hyperTAG_grade_3_4","ae_liver",
+                        "discontinued_due_to_ae", "ae_liver", "ae_hemato"),
+               names_to = "ae_name",
+               values_to = "ae_value") |> 
+  na.omit() |> 
+  relocate(ae_value) |> 
+  group_by(ae_name) |> 
+  nest() |> 
+  multidplyr::partition(cluster = cluster) |> 
+  mutate(mod_01 = map2(data, ae_name, 
+                    ~tab_logist_anal(data = .x, 
+                                     dependent_variable = .y,
+                                     independent_variable = c("bmi", "sex", "age"))),
+         mod_02 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex"))),
+         mod_03 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "age"))),
+         mod_04 = map2(data, ae_name, 
+                       ~tab_logist_anal_uva(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("stage_early","ps_ecog",
+                                                                 "first_syst_th", "response_achieved",
+                                                                 "monotherapy", "dyslipidemia_before"))),
+         mod_05 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex", "age",
+                                                                 "stage_early"))),
+         mod_06 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex", "age",
+                                                                 "ps_ecog"))),
+         mod_07 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex", "age",
+                                                                 "first_syst_th"))),
+         mod_08 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex", "age",
+                                                                 "response_achieved"))),
+         mod_09 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex", "age",
+                                                                 "monotherapy"))),
+         mod_10 = map2(data, ae_name, 
+                       ~tab_logist_anal(data = .x, 
+                                        dependent_variable = .y,
+                                        independent_variable = c("bmi", "sex", "age",
+                                                                 "dyslipidemia_before")))
+         ) |> 
+  collect()
+walk(cluster, ~ .x$kill())
+toc()
+beep(4)
+
+### Export tables ----
+# Write to Excel file with each list element as a sheet
+export(res_logist_tab_01$mod_01 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age.xlsx")
+export(res_logist_tab_01$mod_02 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex.xlsx")
+export(res_logist_tab_01$mod_03 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_age.xlsx")
+export(res_logist_tab_01$mod_04 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_univariate.xlsx")
+export(res_logist_tab_01$mod_05 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age_stageEarly.xlsx")
+export(res_logist_tab_01$mod_06 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age_ecog.xlsx")
+export(res_logist_tab_01$mod_07 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age_firstSyst.xlsx")
+export(res_logist_tab_01$mod_08 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age_responseAchieved.xlsx")
+export(res_logist_tab_01$mod_09 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age_monotherapy.xlsx")
+export(res_logist_tab_01$mod_10 |> 
+         map(as_tibble) |>
+         set_names(res_logist_tab_01$ae_name),
+       "output/tables/250404_logistic_bmi_sex_age_dyslipidemiaBefore.xlsx")
 

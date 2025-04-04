@@ -2,7 +2,8 @@
 param_sel <- c("initials", "age", "sex", "bmi", "ae_grade_3_4",
                "ae_hyperTAG_grade_3_4","discontinued_due_to_ae", "ae_liver",
                "ae_hemato", "ps_ecog", "stage_early", "first_syst_th",
-               "thyroid_disease_before", "monotherapy", "response_achieved")
+               "thyroid_disease_before", "monotherapy", "response_achieved",
+               "dyslipidemia_before")
 
 # Data uploading ----
 d01 <- import("data/processed/Bexaroten 20250330_processed.xlsx")
