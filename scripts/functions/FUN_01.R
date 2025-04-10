@@ -4,7 +4,8 @@ pacman::p_load(update = T,
                equatiomatic, beepr, tictoc, 
                tidyverse, purrr, furrr, easystats, rio, janitor, ggthemes, car,
                gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels,
-               psych, paletteer, ComplexHeatmap, future, multidplyr
+               psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
+               factoextra
                
 )
 ## function specification ----
@@ -23,7 +24,9 @@ conflicted::conflicts_prefer(
   base::setdiff,
   dplyr::last,
   dplyr::first, 
-  dplyr::between
+  dplyr::between,
+  corrr::correlate,
+  purrr::set_names
 )
 
 ## Conflicted functions ----
@@ -145,5 +148,24 @@ tab_logist_anal <- function(data, dependent_variable, independent_variable) {
   
 }
 
+tab_logist_anal_uva <- function(data, dependent_variable, independent_variable) {
+  # definition of variables
+  dependent_var <- dependent_variable
+  independent_var <- independent_variable
+  # data processing
+  data_noNA <- data |>
+    drop_na(any_of(c(dependent_var, independent_var)))
+  # univariate logistic regression - individual variables
+  univ_tab <- data_noNA  |>
+    dplyr::select(all_of(independent_var), ae_value ) |>  ## select variables of interest
+    tbl_uvregression(                         ## produce univariate table
+      method = glm,                           ## define regression want to run (generalised linear model)
+      y = ae_value,                            ## define outcome variable
+      method.args = list(family = binomial),  ## define what type of glm want to run (logistic)
+      exponentiate = TRUE                     ## exponentiate to produce odds ratios (rather than log odds)
+    ) |>
+    modify_caption(glue::glue("**{dependent_var}**"))
+  return(univ_tab)
+}
 
 # Others ----

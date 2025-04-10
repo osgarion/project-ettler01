@@ -59,6 +59,15 @@ cgwtools::resave(list=ls(pattern="tbl"), file = "reports/markD_01.RData")
 # ```
 
 # EDA ----
+## Overview ----
+d02 |> 
+  select(-initials) |>  
+  mutate(across(
+    .cols = -c(bmi, age, ps_ecog), 
+    .fns = as.factor
+  )) |> 
+  my_skim()
+
 ## Proportion tables ----
 # Barplot
 d02 |> 
@@ -133,7 +142,7 @@ fig_heatmap_bin_01 <- d02_binary |>
   nest() |> 
   mutate(fig = map2(data, ae_name, ~heatmap_bin(df = .x, name_ae = .y)))
 
-walk(test$fig, print)
+walk(fig_heatmap_bin_01$fig, print)
 
 ### Save ----
 # Directory to save the SVG files
@@ -311,3 +320,4 @@ export(res_logist_tab_01$mod_10 |>
          set_names(res_logist_tab_01$ae_name),
        "output/tables/250404_logistic_bmi_sex_age_dyslipidemiaBefore.xlsx")
 
+walk(res_logist_tab_01$mod_01, print)
