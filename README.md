@@ -30,6 +30,7 @@ B. Sledované faktory, které ovlivňují (možná, uvidíme : ) výskyt výše 
  7. Léčebná odpověď (ano vs ne)   (Z)
  8. Onemocnění štítné žlázy před nasazením bexarotenu (ano vs ne) (AL)
  9. Výskyt dyslipidemie před nasazením bexartenu (ano vs ne)  (AK)
+ 10. Monoterapie (AA)
 
 (II)
 Hodnocení účinnosti a faktorů ovlivňujících účinnost:

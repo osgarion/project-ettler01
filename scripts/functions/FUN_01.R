@@ -5,7 +5,7 @@ pacman::p_load(update = T,
                tidyverse, purrr, furrr, easystats, rio, janitor, ggthemes, car,
                gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels,
                psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
-               factoextra
+               factoextra, lmerTest, ggforce, lazyWeave, FactoMineR
                
 )
 ## function specification ----

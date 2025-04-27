@@ -5,7 +5,35 @@ param_sel <- c("initials", "age", "sex", "bmi", "ae_grade_3_4",
                "thyroid_disease_before", "monotherapy", "response_achieved",
                "dyslipidemia_before")
 
+param_sel_2 <- c("initials", "age", "sex", "bmi", "ps_ecog", "stage_early",
+                 "first_syst_th", "response_achieved", "thyroid_disease_before",
+                 "dyslipidemia_before", "monotherapy", "ttnt", "ttnt_achieved",
+                 "response_time_to", "response_duration",	"progression",
+                 "treatment_duration", "discontinuation_reason", "ae_grade_3_4",
+                 "ae_liver", "ae_hemato", "discontinued_due_to_ae",
+                 "ae_hyperTAG_grade_3_4", "ae_hyperTAG_any"
+                 
+)
+
+variab_dep_01 <- c("discontinued_due_to_ae", "ae_hyperTAG_any", 
+                    "ae_hyperTAG_grade_3_4", "ae_liver",	"ae_hemato")
+variab_indep_01 <- c("age", "sex", "bmi", "ps_ecog", "stage_early", "first_syst_th",
+                     "response_achieved", "dyslipidemia_before", 
+                     "thyroid_disease_before", "monotherapy"  
+)
+
+variab_dep_02 <- c("stage_early", "response_achieved", 
+                   "ttnt", "ttnt_achieved",
+                   "response_time_to",                 # only non-zero patients
+                   "response_duration", "progression",
+                   "treatment_duration", "discontinuation_reason"
+)
+variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_3_4",
+                     "monotherapy")
+
+
 # Data uploading ----
+## Original version ----
 d01 <- import("data/processed/Bexaroten 20250330_processed.xlsx")
 legend <- import("data/processed/Bexaroten 20250330_processed.xlsx", which = "legend")
 rename_columns <- set_names(legend$parameter, legend$columname)
@@ -18,3 +46,14 @@ d02_binary <- d02 |>
     sex == "F" ~ 0,
     TRUE ~ 1
   )) 
+
+## Updated version ----
+d03 <- import("data/processed/Bexaroten 20250419_processed.xlsx")
+legend_03 <- import("data/processed/Bexaroten 20250419_processed.xlsx", which = "legend")
+rename_columns_03 <- set_names(legend_03$parameter, legend_03$columname)
+d03 <- d03 |> rename(any_of(rename_columns_03)) |> 
+  mutate(ps_ecog = if_else(ps_ecog == 0, 0, 1))
+
+d04 <- d03 |> select(any_of(param_sel_2)) |> 
+  mutate(discontinued_due_to_ae = str_remove_all(discontinued_due_to_ae, "x") |> 
+           as.numeric())

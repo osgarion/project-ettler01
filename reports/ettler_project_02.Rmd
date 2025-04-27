@@ -1,0 +1,253 @@
+---
+title: "Adverse effect of bexaroten therapy in T-lymphom "
+author: "Jiri Baloun"
+date: "Compiled on: **2025-04-25**  <br> Last updated **`r format(Sys.time(), '%Y-%m-%d')`**"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style type="text/css">
+.title {
+  text-align: center;
+}
+.author {
+  font-size: 30px;
+  text-align: center;
+  font-style: italic;
+  font-weight: 300;
+}
+.date {
+  font-weight: 300;
+}
+h1, h2, h3, h4 {
+    font-weight: 600;
+    margin-top: 2em;
+}
+body {text-align: justify}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 14px;
+    border-left: 5px solid #eee;
+}
+p {
+  text-indent: 2rem;
+}
+table {
+    width:100%;
+}
+.main-container {
+  max-width: 100% !important;
+  margin: auto;
+}
+img{
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+.boxBorder {
+     border: 2px solid #990066;
+     padding: 10px;
+     outline: #990066 solid 5px;
+     outline-offset: 5px;
+   }
+</style>
+```
+```{r setup, fig.align = 'center', include=FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE,
+    knitr.kable.NA = ''  # if it does not work, use this  options(knitr.kable.NA = '')
+)
+options(knitr.kable.NA = '')
+
+# Functions
+## loading  
+pacman::p_load(update = FALSE,
+  tidyverse,readxl, data.table, magrittr, Rmisc, future, 
+               purrr, easystats, rio, janitor, ggthemes, car, labelled,testthat,
+               lubridate, dlookr, gtsummary, skimr, summarytools,kableExtra,
+               psych, smplot2, car, broom, sjPlot, glue, GGally,
+               parallelly,tidymodels, corrr, factoextra, FactoMineR) 
+## function specification ----
+conflicted::conflicts_prefer(
+  janitor::remove_empty,
+  dplyr::filter,
+  dplyr::mutate,
+  dplyr::rename,
+  dplyr::summarize,
+  dplyr::summarise,
+  dplyr::select,
+  purrr::map,
+  tidyr::extract,
+  stats::chisq.test,
+  base::intersect,
+  base::setdiff,
+  dplyr::last,
+  dplyr::first, 
+  dplyr::between,
+  corrr::correlate,
+  purrr::set_names,
+  dplyr::desc
+)
+
+## Manual 
+# skimr
+my_skim <- skimr::skim_with(numeric = sfl(median = ~ median(., na.rm = TRUE),
+                                          mad = ~ mad(., na.rm = TRUE)), 
+                            append = TRUE)
+
+# Load objects
+load("markD_02.RData")
+
+# Load cores
+no_cores <- parallelly::availableCores() -1
+
+# Load functions
+list.files("F:/Analysis/github/project-ettler01/scripts/functions/", pattern="*.*", full.names=TRUE) %>% str_subset( "OBJ", negate = TRUE) %>%  map(~source(.))
+
+# Parameter selection ----
+param_sel_2 <- c("initials", "age", "sex", "bmi", "ps_ecog", "stage_early",
+                 "first_syst_th", "response_achieved", "thyroid_disease_before",
+                 "dyslipidemia_before", "monotherapy", "ttnt", "ttnt_achieved",
+                 "response_time_to", "response_duration",	"progression",
+                 "treatment_duration", "discontinuation_reason", "ae_grade_3_4"
+)
+
+variab_dep_01 <- c("discontinued_due_to_ae", "ae_complete_grade_3_4", 
+                    "ae_hyperTAG_grade_3_4", "ae_liver",	"ae_hemato")
+variab_indep_01 <- c("age", "sex", "bmi", "ps_ecog", "stage_early", "first_syst_th",
+                     "response_achieved", "dyslipidemia_before", 
+                     "thyroid_disease_before", "monotherapy"  
+)
+
+variab_dep_02 <- c("stage_early", "response_achieved", 
+                   "ttnt", "ttnt_achieved",
+                   "response_time_to",                 # only non-zero patients
+                   "response_duration", "progression",
+                   "treatment_duration", "discontinuation_reason"
+)
+variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_3_4",
+                     "monotherapy")
+
+
+
+# Object processing  
+# d02 <- d01 |> select(any_of(param_sel))
+# d02_binary <- d02 |>
+#   select(-initials, -age, -bmi, -ps_ecog) |>
+#   mutate(sex = case_when(
+#     sex == "F" ~ 0,
+#     TRUE ~ 1
+#   )) 
+
+
+```
+
+
+# Questions  
+- [ ] In column $response_achieved$ there is value $x$. What does it mean?  
+- [ ] The same is in the column $discontinued_due_to_ae$. What does the $x$ mean?  
+- [ ] I removed all $lost of FU$.  
+- [ ] Should I use $ae_hyperTAG_any$ (column AP) instead of $ae_complete_grade_3_4$ (column AN) in question I.A.2.? In the $ae_hyperTAG_any$ (column AP), there is the selection of any *hyperTAG* in adverse effect.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Session info
+
+<details>
+
+<summary>Platform</summary>
+
+```{r session_info_1}
+df_session_platform <- devtools::session_info()$platform %>% 
+  unlist(.) %>% 
+  as.data.frame(.) %>% 
+  rownames_to_column(.)
+
+colnames(df_session_platform) <- c("Setting", "Value")
+
+kable(
+  df_session_platform, 
+  booktabs = T, 
+  align = "l",
+  caption = "(ref:Reproducibility-SessionInfo-R-environment-title)", # complete caption for main document
+  caption.short = " " # "(ref:Reproducibility-SessionInfo-R-environment-caption)" # short caption for LoT
+) %>% 
+  kable_styling(full_width = F,
+                latex_options = c(
+                  "hold_position" # stop table floating
+                ),
+                bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) 
+
+```
+
+</details>
+
+<details>
+
+<summary>Used packages</summary>
+
+```{r session_info_2}
+df_session_packages <- devtools::session_info()$packages %>% 
+  as.data.frame(.) %>% 
+  filter(attached == TRUE) %>% 
+  dplyr::select(loadedversion, date) %>% 
+  rownames_to_column
+
+colnames(df_session_packages) <- c("Package", "Loaded version", "Date")
+
+rows <- seq_len(nrow(df_session_packages) %/% 2)
+l_session_packages <- list(df_session_packages[rows,1:3],  
+                           matrix(numeric(), nrow=0, ncol=1),
+                           df_session_packages[-rows, 1:3])
+
+kable(
+  l_session_packages, 
+  row.names = T,
+  booktabs = T, 
+  align = "l",
+  caption = "(ref:Reproducibility-SessionInfo-R-packages-title)", # complete caption for main document
+  caption.short = " " # "(ref:Reproducibility-SessionInfo-R-packages-caption)" # short caption for LoT
+) %>% kable_styling(full_width = F,
+                    latex_options = c(
+                      "hold_position" # stop table floating
+                    ),bootstrap_options = c("striped", "hover", "condensed", "responsive") 
+) 
+```
+
+</details>
+
+<br> <br> <br> <br> <br> <br>
+
+::: {.tocify-extend-page data-unique="tocify-extend-page" style="height: 0;"}
+:::
+
