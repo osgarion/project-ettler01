@@ -1,7 +1,3 @@
-# Header 1 ----
-## Header 2 ----
-### Header 3 ----
-
 # References ----
 # model diagnosis
 ## https://easystats.github.io/see/articles/performance.html

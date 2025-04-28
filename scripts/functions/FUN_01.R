@@ -5,7 +5,8 @@ pacman::p_load(update = T,
                tidyverse, purrr, furrr, easystats, rio, janitor, ggthemes, car,
                gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels,
                psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
-               factoextra, lmerTest, ggforce, lazyWeave, FactoMineR
+               factoextra, lmerTest, ggforce, lazyWeave, FactoMineR, sjPlot,
+               kableExtra, survival, survminer, ggsurvfit
                
 )
 ## function specification ----
@@ -100,6 +101,27 @@ heatmap_bin <- function(df, name_ae) {
   return(fig2)
 }
 
+## biostatsquid theme ----
+biostatsquid_theme <- theme(plot.title = element_text(size = rel(2)),
+                            panel.grid.major.y = element_line(colour = 'gray'),
+                            panel.grid.minor.y = element_line(colour = 'gray'),
+                            panel.grid.major.x = element_blank(),
+                            panel.grid.minor.x = element_blank(),
+                            plot.background = element_rect(fill = NULL, colour = 'white'),
+                            panel.background = element_rect(fill = 'white'),
+                            # Axis stuff
+                            axis.line = element_line(colour = 'black', linewidth = 1),
+                            axis.text = element_text(colour = "black", face = 'bold'),
+                            axis.text.x = element_text(size = rel(1)),
+                            axis.text.y = element_text(size = rel(1)),
+                            axis.title = element_text(size = rel(1.2)),
+                            axis.ticks = element_line(colour = 'black', linewidth = 1.2),
+                            # Legend stuff
+                            legend.position = "bottom",
+                            legend.margin = margin(6, 6, 6, 6),
+                            legend.title = element_text(face = 'bold'),
+                            legend.background = element_blank(),
+                            legend.box.background = element_rect(colour = "black"))
 
 # Tables ----
 ## skimr ----

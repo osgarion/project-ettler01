@@ -62,7 +62,9 @@ d04 |>
 res_mca_02 <- d04 |> select(-initials, -age, -bmi) |> na.omit() |> 
   mutate(across(everything(),as.factor)) |> 
   MCA(graph = FALSE)
-fviz_mca_var(res_mca_02, repel = TRUE, ggtheme = theme_minimal(),
+fviz_mca_var(res_mca_02, 
+             select.var = list(contrib = 10),  # only top ten variables
+             repel = TRUE, ggtheme = theme_minimal(),
              col.var = "contrib",
              # choice = "mca.cor",
              gradient.cols = c("#bdbdbd", "#ffeda0", "#FC4E07"))
@@ -73,7 +75,8 @@ dimdesc(res_mca_02, axes = c(1,2))
 
 
 # Statistics ----
-## Logistic regression ----
+## I. section ----
+### Logistic model ----
 res_logist_02 <- d04 |> 
   select(all_of(c(variab_indep_01, variab_dep_01))) |> 
   mutate(sex = if_else(sex == "M", 1, 0)) |> 
@@ -91,15 +94,278 @@ res_logist_02 <- d04 |>
                               data = .x, family = "binomial")),
          tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
 
-
-test <- res_logist_02 |> 
+### Table ----
+res_logist_02_tab <- res_logist_02 |> 
   unnest(tidier) |> 
   filter(term == "indep_value") |> 
-  select(-data, -mod, -term)
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+export(res_logist_02_tab, "output/tables/250428_partA_logistic_01.xlsx")
+
+### kableExtra ----
+res_logist_02_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+
+## II. section ----
+### Logistic regression ----
+#### Model ----
+res_logist_03 <- d04 |> 
+  select(all_of(c(variab_indep_02, variab_dep_02a))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_02a),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_02),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
+
+#### Table ----
+res_logist_03_tab <- res_logist_03 |> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+export(res_logist_03_tab, "output/tables/250428_partA_logistic_02.xlsx")
+
+#### kableExtra ----
+res_logist_03_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+
+### Survival analyses ----
+# https://www.themillerlab.io/posts/survival_analysis/
+# https://thriv.github.io/biodatasci2018/r-survival.html#cox_regression
+# data
+surv_data <- d04 |> 
+  select(ttnt, ttnt_achieved, first_syst_th)
+
+surv_obj <- Surv(surv_data[,1],surv_data[,2])
+
+#### Kaplan-Meier ----
+survfit_obj <- survfit(surv_obj ~ 1, data = surv_data)
+
+# Kaplan-Meier using ggsurvplot
+fig_km <- ggsurvplot(fit = survfit_obj, 
+           data = surv_data,
+           ####### Format Title #######
+           title = "Overall Survival",
+           subtitle = "Unstratified Cohort",
+           font.title = c(22, "bold", "black"),
+           ggtheme = theme_minimal() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))+
+             theme(plot.subtitle = element_text(hjust = 0.5, size = 16, face = "italic")), # center and bold title and subtitle
+           ####### Format Axes #######
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(18,"bold"), # changes x axis labels
+           font.y=c(18,"bold"), # changes y axis labels
+           font.xtickslab=c(14,"plain"), # changes the tick label on x axis
+           font.ytickslab=c(14,"plain"),
+           ####### Format Curve Lines #######
+           palette = "black",
+           ####### Censor Details ########
+           censor.shape="|",
+           censor.size = 5,
+           ####### Confidence Intervals ########
+           conf.int = TRUE, # To Remove conf intervals use "FALSE"
+           conf.int.fill = "purple", # fill color to be used for confidence interval
+           surv.median.line = "hv", # allowed values include one of c("none", "hv", "h", "v"). v: vertical, h:horizontal
+           ######## Format Legend #######
+           legend.title = "All Patients",
+           legend.labs = "All Patients", # Change the Strata Legend
+           ######## Risk Table #######
+           risk.table = TRUE, # Adds Risk Table
+           risk.table.height = 0.25, # Adjusts the height of the risk table (default is 0.25)
+           risk.table.fontsize = 4.5
+)
 
 
-library(sjPlot)
+survfit_obj_pred <- survfit(surv_obj ~ first_syst_th, data = surv_data)
 
-res_logist_02$mod[[23]] |> tab_model()
-res_logist_02$mod[[23]] |> tab_model()
 
+ggsurvplot(fit = survfit_obj_pred, 
+           data = surv_data,
+           ####### Format Title #######
+           title = "Overall Survival",
+           subtitle = "Stratified By Treatment",
+           font.title = c(22, "bold", "black"),
+           ggtheme = theme_classic() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))+ # theme_classic will give a white background with no lines on the plot
+             theme(plot.subtitle = element_text(hjust = 0.5, size = 16, face = "italic")), 
+           ####### Format Axes #######
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(18,"bold"), # changes x axis labels
+           font.y=c(18,"bold"), # changes y axis labels
+           font.xtickslab=c(14,"plain"), # changes the tick label on x axis
+           font.ytickslab=c(14,"plain"),
+           ####### Format Curve Lines #######
+           palette = c("red","black"),
+           ####### Censor Details ########
+           censor = TRUE, # logical value. If TRUE, censors will be drawn,
+           censor.shape="|",
+           censor.size = 5,
+           ####### Confidence Intervals ########
+           conf.int = TRUE, # To Remove conf intervals use "FALSE"
+           conf.int.fill = "purple", # fill color to be used for confidence interval
+           surv.median.line = "hv", # allowed values include one of c("none", "hv", "h", "v"). v: vertical, h:horizontal
+           ######## Format Legend #######
+           legend = "none", # If you'd prefer more space for your plot, consider removing the legend
+           legend.title = "All Patients",
+           legend.labs = c("Treatment 1","Treatment 2"), # Change the Strata Legend
+           ######## Risk Table #######
+           risk.table = TRUE, # Adds Risk Table
+           risk.table.height = 0.25 # Adjusts the height of the risk table (default is 0.25)
+)
+
+# Log-Rank Test
+survdif_obj <- survdiff(surv_obj ~ first_syst_th, data = surv_data)
+
+
+ggsurvplot(fit = survfit_obj_pred, 
+           data = surv_data,
+           title = "Overall Survival",
+           subtitle = "Stratified By Histology",
+           font.title = c(22, "bold", "black"),
+           ggtheme = theme_grey() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))+ # theme_grey will give a grey background with  lines on the plot
+             theme(plot.subtitle = element_text(hjust = 0.5, size = 16, face = "italic")),
+           ####### Censor Details ########
+           censor = TRUE, #ogical value. If TRUE, censors will be drawn
+           censor.shape="|",
+           censor.size = 5,
+           ####### Confidence Intervals ########
+           conf.int = TRUE, # To Remove conf intervals use "FALSE"
+           surv.median.line = "hv", # allowed values include one of c("none", "hv", "h", "v"). v: vertical, h:horizontal
+           ####### Format Axes #######
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(18,"bold"), # changes x axis labels
+           font.y=c(18,"bold"), # changes y axis labels
+           font.xtickslab=c(14,"plain"), # changes the tick label on x axis
+           font.ytickslab=c(14,"plain"),
+           ######## Format Legend #######
+           legend.title = "All Patients",
+           legend.labs = c("No","Yes"), # Change the Strata Legend
+           legend = c(0.8,0.8), #c(0,0) corresponds to the "bottom left" and c(1,1) corresponds to the "top right" position
+           ######## Plot Dimensions #######
+           surv.plot.height = 0.95, # Default is 0.75
+           ######## Risk Table #######
+           risk.table = FALSE, # Adds Risk Table
+           risk.table.height = 0.35, # Adjusts the height of the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+           ######## p-value details #######
+           pval = TRUE,
+           pval.size = 5,
+           pval.coord = c(1,1)
+)
+
+
+
+
+
+
+
+
+res_cox_01 <- coxph(Surv(ttnt, ttnt_achieved) ~ age, data = d04)
+summary(res_cox_01)
+
+ggsurvplot(survfit(Surv(ttnt, ttnt_achieved) ~ first_syst_th, data = d04), pval=TRUE)
+
+ggsurvfit(survfit2(Surv(ttnt, ttnt_achieved) ~ first_syst_th, data = d04), pval=TRUE)+
+  labs(
+    x = "Days",
+    y = "Overall survival probability"
+  ) + 
+  add_confidence_interval() +
+  add_pvalue() +
+  add_risktable()
+
+# https://biostatsquid.com/easy-survival-analysis-r-tutorial/
+res_cox_02 <- coxph(Surv(ttnt, ttnt_achieved) ~ first_syst_th, data = d04) 
+res_cox_02|>  
+  tbl_regression(exp = TRUE) 
+
+res_cox_02 |> summary()
+
+survival::cox.zph(res_cox_02)
+
+
+cox_res <- coxph(Surv(ttnt, ttnt_achieved) ~ first_syst_th, data = d04)
+cox_res
+
+ggforest(cox_res, 
+         data = d04)
+
+res.cox <- coxph(Surv(ttnt, ttnt_achieved) ~ first_syst_th * age, data = d04)
+res.cox
+
+ggforest(res.cox, data = d04)
+ggforest(res.cox, data = res.cox$data)
+
+
+coxph(Surv(ttnt, ttnt_achieved) ~ first_syst_th * age, data = d04) |> ggforest()
+
+
+# Plot the Schoenfeld residuals over time for each covariate
+survminer::ggcoxzph(survival::cox.zph(res_cox_02), point.size = 0.1)
+
+# Log rank test ======================================================
+table(d04$first_syst_th)
+
+res_surv_02 <- survfit(Surv(ttnt, ttnt_achieved) ~ first_syst_th, data = d04)
+ggsurvplot(res_surv_02, data = d04,
+           size = 1,
+           palette = c('#E7B800', '#2e9fdf'),
+           censor.shape = '|', censor.size = 4,
+           conf.int = TRUE,
+           pval = TRUE,
+           risk.table = TRUE,
+           risk.table.col = 'strata',
+           legend.labs = list('0' = 'W/O achieved', '1' = 'Achieved'),
+           risk.table.height = 0.25,
+           ggtheme = theme_bw())
+
+
+# Kaplan-Meier plots ======================================================
+## Plot -------------------------
+s1 <- survfit(Surv(ttnt, ttnt_achieved) ~ 1, data = d04)
+
+km_curve <- ggsurvfit(s1, linewidth = 1) +
+  labs(x = 'Months', y = 'Overall survival') +
+  add_confidence_interval() +
+  add_risktable() +
+  scale_ggsurvfit() + 
+  biostatsquid_theme +
+  coord_cartesian(xlim = c(0, 8))
+
+
+km_curve +
+  geom_vline(xintercept = 1, linetype = 'dashed', colour = 'red', size = 1) +
+  geom_hline(yintercept = summary(s1, times = 12)$surv, linetype = 'dashed', colour = 'red', size = 1) + 
+  coord_cartesian(xlim = c(0, 8))
