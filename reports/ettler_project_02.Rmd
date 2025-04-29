@@ -169,6 +169,10 @@ variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_
 - [ ] Should I use $ae_hyperTAG_any$ (column AP) instead of $ae_complete_grade_3_4$ (column AN) in question I.A.2.? In the $ae_hyperTAG_any$ (column AP), there is the selection of any *hyperTAG* in adverse effect.  
 
 
+# Notes  
+* $ae_hyperTAG_any$ is perfectly predicted by $thyroid_disease_before"$. In other words, for that pair of variables, the logistic regression model fits too perfectly — the predicted probabilities are 0 or 1 without uncertainty.
+
+
 
 
 
