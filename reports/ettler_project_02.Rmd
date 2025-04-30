@@ -81,11 +81,13 @@ options(knitr.kable.NA = '')
 # Functions
 ## loading  
 pacman::p_load(update = FALSE,
-  tidyverse,readxl, data.table, magrittr, Rmisc, future, 
-               purrr, easystats, rio, janitor, ggthemes, car, labelled,testthat,
-               lubridate, dlookr, gtsummary, skimr, summarytools,kableExtra,
-               psych, smplot2, car, broom, sjPlot, glue, GGally,
-               parallelly,tidymodels, corrr, factoextra, FactoMineR) 
+               tidyverse, purrr, furrr, easystats, rio, janitor, ggthemes, car,
+               gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels,
+               psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
+               factoextra, lmerTest, ggforce, lazyWeave, FactoMineR, sjPlot,
+               kableExtra, survival, survminer, ggsurvfit, ggfortify, 
+               adjustedCurves
+  ) 
 ## function specification ----
 conflicted::conflicts_prefer(
   janitor::remove_empty,
@@ -124,40 +126,39 @@ no_cores <- parallelly::availableCores() -1
 list.files("F:/Analysis/github/project-ettler01/scripts/functions/", pattern="*.*", full.names=TRUE) %>% str_subset( "OBJ", negate = TRUE) %>%  map(~source(.))
 
 # Parameter selection ----
+param_sel <- c("initials", "age", "sex", "bmi", "ae_grade_3_4",
+               "ae_hyperTAG_grade_3_4","discontinued_due_to_ae", "ae_liver",
+               "ae_hemato", "ps_ecog", "stage_early", "first_syst_th",
+               "thyroid_disease_before", "monotherapy", "response_achieved",
+               "dyslipidemia_before")
+
 param_sel_2 <- c("initials", "age", "sex", "bmi", "ps_ecog", "stage_early",
                  "first_syst_th", "response_achieved", "thyroid_disease_before",
                  "dyslipidemia_before", "monotherapy", "ttnt", "ttnt_achieved",
                  "response_time_to", "response_duration",	"progression",
-                 "treatment_duration", "discontinuation_reason", "ae_grade_3_4"
+                 "treatment_duration", "discontinuation_reason", "ae_grade_3_4",
+                 "ae_liver", "ae_hemato", "discontinued_due_to_ae",
+                 "ae_hyperTAG_grade_3_4", "ae_hyperTAG_any"
+                 
 )
 
-variab_dep_01 <- c("discontinued_due_to_ae", "ae_complete_grade_3_4", 
+variab_dep_01 <- c("discontinued_due_to_ae", "ae_hyperTAG_any", 
                     "ae_hyperTAG_grade_3_4", "ae_liver",	"ae_hemato")
 variab_indep_01 <- c("age", "sex", "bmi", "ps_ecog", "stage_early", "first_syst_th",
                      "response_achieved", "dyslipidemia_before", 
                      "thyroid_disease_before", "monotherapy"  
 )
 
-variab_dep_02 <- c("stage_early", "response_achieved", 
-                   "ttnt", "ttnt_achieved",
-                   "response_time_to",                 # only non-zero patients
-                   "response_duration", "progression",
-                   "treatment_duration", "discontinuation_reason"
+variab_dep_02a <- c("stage_early", "response_achieved" 
 )
+variab_dep_02b <- c("treatment_duration", "discontinuation_reason",
+                    "ttnt", "ttnt_achieved"
+)
+variab_dep_02c <- c("response_time_to",                 # only non-zero patients
+                    "response_duration", "progression")
 variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_3_4",
                      "monotherapy")
-
-
-
 # Object processing  
-# d02 <- d01 |> select(any_of(param_sel))
-# d02_binary <- d02 |>
-#   select(-initials, -age, -bmi, -ps_ecog) |>
-#   mutate(sex = case_when(
-#     sex == "F" ~ 0,
-#     TRUE ~ 1
-#   )) 
-
 
 ```
 
@@ -173,6 +174,209 @@ variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_
 * $ae_hyperTAG_any$ is perfectly predicted by $thyroid_disease_before"$. In other words, for that pair of variables, the logistic regression model fits too perfectly — the predicted probabilities are 0 or 1 without uncertainty.
 
 
+# Exporatory Data Analyses (EDA) {.tabset .tabset-fade .tabset-pills}
+
+
+## Overview {.unnumbered}
+```{r eda_skimr, results="asis"}
+d04 |> 
+  select(-initials) |>  
+  mutate(across(
+    .cols = -c(bmi, age), 
+    .fns = as.factor
+  )) |> 
+  my_skim()
+
+```
+
+
+## Proportional Bar plot {.unnumbered}
+
+```{r eda_barplot}
+d04 |> 
+  select(-initials, -age, -bmi, -contains("duration"), -ttnt,
+         -contains("time_to")) |> 
+  select(where(is.numeric)) |> 
+  mutate(across(everything(),as.factor)) |> 
+  pivot_longer(cols = everything()) |> 
+  na.omit() |> 
+  ggplot(aes(x = name, fill = as.factor(value))) +
+  geom_bar(position = "fill") +  # Proportions
+  labs(y = "Proportion", fill = "Outcome") +
+  theme_sjplot2()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  paletteer::scale_fill_paletteer_d("waRhol::marilyn_orange_62") +
+  NULL
+```
+
+
+# Statistics  
+## Multiple correspondence analyses  
+
+```{r stat_mca, out.width="50%"}
+res_mca_02 <- d04 |> select(-initials, -age, -bmi) |> na.omit() |> 
+  mutate(across(everything(),as.factor)) |> 
+  MCA(graph = FALSE)
+fviz_mca_var(res_mca_02, 
+             select.var = list(contrib = 10),  # only top ten variables
+             repel = TRUE, ggtheme = theme_minimal(),
+             col.var = "contrib",
+             # choice = "mca.cor",
+             gradient.cols = c("#bdbdbd", "#ffeda0", "#FC4E07"))
+
+fviz_ellipses(res_mca_02, c("sex", "ae_grade_3_4"),
+              geom = "point")
+```
+
+
+## I. section  
+### Logistic model  
+
+
+
+```{r stat_1_logistic}
+res_logist_02 <- d04 |> 
+  select(all_of(c(variab_indep_01, variab_dep_01))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_01),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_01),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
+
+res_logist_02_tab <- res_logist_02 |> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_02_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+
+## II. section  
+### Logistic regression  
+
+
+
+
+```{r stat_2_logistic}
+res_logist_03 <- d04 |> 
+  select(all_of(c(variab_indep_02, variab_dep_02a))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_02a),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_02),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
+
+res_logist_03_tab <- res_logist_03 |> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_03_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+### Survival analyses {.tabset .tabset-fade .tabset-pills}  
+
+#### Time to next treatment  {.tabset}  
+
+##### Kaplan-Meier Overall  {.unnumbered}  
+
+```{r stat_2_surv_ttnt_overall}
+res_surv_ttnt$surv[[1]]$`KM overall`
+```
+##### Kaplan-Meier Stratified  {.tabset .unnumbered}  
+
+###### PS-ECOG {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_ecog}
+res_surv_ttnt$surv[[1]]$`KM stratified`
+```
+
+###### First Systemic Therapy {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_firstSYSther}
+res_surv_ttnt$surv[[2]]$`KM stratified`
+```
+
+###### AE Grade 3-4 {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_aeGRADE34}
+res_surv_ttnt$surv[[3]]$`KM stratified`
+```
+
+###### Monotherapy {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_monotherapy}
+res_surv_ttnt$surv[[4]]$`KM stratified`
+```
+
+###### Gender {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_sex}
+res_surv_ttnt$surv[[5]]$`KM stratified`
+```
+
+###### BMI {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_bmi}
+res_surv_ttnt$surv[[6]]$`KM stratified`
+```
+
+###### Age {unnumbered}  
+```{r stat_2_surv_ttnt_stratified_age}
+res_surv_ttnt$surv[[7]]$`KM stratified`
+```
+
+
+
+
+
+##### Cox Proportional Hazards {.tabset .unnumbered}  
+
+###### PS-ECOG {unnumbered}  
+```{r stat_2_surv_cox_table_ecog}
+res_surv_ttnt$surv[[1]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_cox_plot_ecog}
+res_surv_ttnt$surv[[1]]$`CoxPH plot`
+```
 
 
 
@@ -180,6 +384,97 @@ variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_
 
 
 
+```{r stat_2_surv_cox_plot}
+res_surv_ttnt$surv[[2]]$`CoxPH print table`
+```
+
+
+```{r stat_2_surv_cox_plot}
+res_surv_ttnt$surv[[2]]$`CoxPH plot`
+```
+
+
+
+
+```{r stat_2_surv_cox_forest_bmi}
+res_surv_ttnt$surv[[6]]$`CoxPH forest plot qunatile`
+```
+
+```{r stat_2_surv_cox_forest_age}
+res_surv_ttnt$surv[[4]]$`CoxPH forest plot qunatile`
+```
+
+
+
+
+
+
+
+
+
+
+
+
+#### Duration treatment  {.unnumbered}  
+
+```{r stat_2_surv_durTRTeffect}
+res_surv_durTRTeffect$surv[[1]]$`KM overall`
+```
+
+
+#### Disease Progression & Response Time  {.unnumbered}  
+
+```{r stat_2_surv_response}
+res_surv_response
+```
+
+
+
+### Linear regression  
+#### Time to effect  
+
+
+```{r}
+res_timeTOeffect <- d04 |> 
+  select(response_time_to, all_of(variab_indep_02)) |> 
+  mutate(sex = if_else(sex == "M",1,0)) |> 
+  pivot_longer(cols = -response_time_to,
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~lm(data = .x, response_time_to ~ indep_value)),
+         tidier = map(mod, ~tidy(.x, conf.int = T)),
+         qqplot = map2(mod, indep_name, ~ggqqplot(na.omit(resid(.x)) |> as_tibble(),
+                                                  x = "value", title = .y)
+                       )) 
+
+
+res_timeTOeffect_tab <- res_timeTOeffect|> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-(data:term), -qqplot)
+
+
+res_timeTOeffect_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Independent", "Estimate", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+
+
+```
+
+
+# Conclussion  
 
 
 
