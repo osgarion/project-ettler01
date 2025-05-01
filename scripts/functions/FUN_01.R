@@ -220,7 +220,7 @@ complex_surv_analyses_cat <- function(df, time_to, event, independent) {
   # Survival Analses ----
   ## Kaplan-Meier ----
   surv_obj <- Surv(surv_data$var_time,surv_data$var_status)
-  survfit_obj <- survfit(surv_obj ~ 1, data = surv_data)
+  survfit_obj <- survfit(Surv(var_time,var_status) ~ 1, data = surv_data)
   ### Overall analyses ----
   fig_km_overall <- ggsurvplot(fit = survfit_obj, 
                                data = surv_data,
@@ -255,7 +255,7 @@ complex_surv_analyses_cat <- function(df, time_to, event, independent) {
                                risk.table.fontsize = 4.5)
   
   ### Stratified analyses ----
-  survfit_obj_pred <- survfit(surv_obj ~ var_indep, data = surv_data)
+  survfit_obj_pred <- survfit(Surv(var_time,var_status) ~ var_indep, data = surv_data)
   
   fig_km_stratified <- ggsurvplot(fit = survfit_obj_pred, 
                                   data = surv_data,
@@ -296,7 +296,7 @@ complex_surv_analyses_cat <- function(df, time_to, event, independent) {
   )
   
   ##Log-Rank Test ----
-  log_rank <- survdiff(surv_obj ~ var_indep, data = surv_data)
+  log_rank <- survdiff(Surv(var_time,var_status) ~ var_indep, data = surv_data)
   
   ## CoxPH ----
   res_cox_01 <- coxph( Surv(var_time,var_status) ~ var_indep, 
@@ -375,7 +375,7 @@ complex_surv_analyses_cont <- function(df, time_to, event, independent) {
   # Survival Analses ----
   ## Kaplan-Meier ----
   surv_obj <- Surv(surv_data$var_time,surv_data$var_status)
-  survfit_obj <- survfit(surv_obj ~ 1, data = surv_data)
+  survfit_obj <- survfit(Surv(var_time,var_status) ~ 1, data = surv_data)
   ### Overall analyses ----
   fig_km_overall <- ggsurvplot(fit = survfit_obj, 
                                data = surv_data,
@@ -410,7 +410,7 @@ complex_surv_analyses_cont <- function(df, time_to, event, independent) {
                                risk.table.fontsize = 4.5)
   
   ### Stratified analyses ----
-  survfit_obj_pred <- survfit(surv_obj ~ var_indep_group, data = surv_data)
+  survfit_obj_pred <- survfit(Surv(var_time,var_status) ~ var_indep_group, data = surv_data)
   
   fig_km_stratified <- ggsurvplot(fit = survfit_obj_pred, 
                                   data = surv_data,
@@ -452,7 +452,7 @@ complex_surv_analyses_cont <- function(df, time_to, event, independent) {
   )
   
   ##Log-Rank Test ----
-  log_rank <- survdiff(surv_obj ~ var_indep_group, data = surv_data)
+  log_rank <- survdiff(Surv(var_time,var_status) ~ var_indep_group, data = surv_data)
   
   ## CoxPH ----
   res_cox_01 <- coxph( Surv(var_time,var_status) ~ var_indep, 
