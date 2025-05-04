@@ -2,6 +2,14 @@
 Retrospektivní analýza pacientů s primárním kožním T buněčným lymfomem (Mycosis fungoides a Sézaryho syndrom) léčených bexarotenem (fir.název Targretin). Celkem 45 pacientů.
 
 ##### Communication #####
+# 2025-05-04
+Discontinued to ae → x zaměnit za nulu
+Bmi → stratifikovat
+Stage_early → nezávisle analyzovat časná a pozdní
+Zaměnit Days za Months
+Neobjevil se obrázek pro kontinuální data v survival analýzách CoxPH
+-------------------------------------------------------------------------------
+
 # 2025-04-19
 Ahoj Jirko,
  
