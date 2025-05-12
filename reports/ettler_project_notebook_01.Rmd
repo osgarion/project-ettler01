@@ -85,7 +85,7 @@ pacman::p_load(update = FALSE,
                purrr, easystats, rio, janitor, ggthemes, car, labelled,testthat,
                lubridate, dlookr, gtsummary, skimr, summarytools,kableExtra,
                psych, smplot2, car, broom, sjPlot, glue, GGally,
-               parallelly,tidymodels, corrr, factoextra, FactoMineR) 
+               parallelly,tidymodels, corrr, factoextra, FactoMineR, ggpubr) 
 ## function specification ----
 conflicted::conflicts_prefer(
   janitor::remove_empty,

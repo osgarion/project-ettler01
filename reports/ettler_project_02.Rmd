@@ -35,7 +35,7 @@ editor_options:
 .date {
   font-weight: 300;
 }
-h1, h2, h3, h4 {
+h1, h2, h3, h4, h5 {
     font-weight: 600;
     margin-top: 2em;
 }
@@ -164,20 +164,75 @@ variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_
 
 
 # Questions  
-- [ ] In column $response_achieved$ there is value $x$. What does it mean?  
-- [ ] The same is in the column $discontinued_due_to_ae$. What does the $x$ mean?  
-- [ ] I removed all $lost of FU$.  
-- [ ] Should I use $ae_hyperTAG_any$ (column AP) instead of $ae_complete_grade_3_4$ (column AN) in question I.A.2.? In the $ae_hyperTAG_any$ (column AP), there is the selection of any *hyperTAG* in adverse effect.  
+- [ ]  In column $response_achieved$ there is value $x$. What does it mean?  
+- [ ]  The same is in the column $discontinued_due_to_ae$. What does the $x$ mean?  
+- [ ]  I removed all $lost of FU$.  
+- [ ]  Should I use $ae\_hyperTA\_G_any$ (column AP) instead of $ae\_complete\_grade\_3\_4$ (column AN) in question I.A.2.? In the $ae\_hyperTAG\_any$ (column AP), there is the selection of any *hyperTAG* in adverse effect.  
 
 
 # Notes  
-* $ae_hyperTAG_any$ is perfectly predicted by $thyroid_disease_before"$. In other words, for that pair of variables, the logistic regression model fits too perfectly — the predicted probabilities are 0 or 1 without uncertainty.
+* The variable $ae\_hyperTAG\_any$ is perfectly predicted by $thyroid\_disease\_before$. In other words, the logistic regression model fits this pair of variables too perfectly — producing predicted probabilities of 0 or 1 with no uncertainty.
+
+# Abbrativations
+
+| Parameter                          | Description                                                                                           | Column Name               |
+|------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------------|
+| Initials                           | XX = surname, forename                                                                                | initials                  |
+| Center                             | CZ/DE                                                                                                 | center                    |
+| Age                                | at the time of initiation of Bexaroten (years)                                                       | age                       |
+| Sex                                | M/F                                                                                                   | sex                       |
+| BMI                                | at the time of initiation of Bexarotene                                                               | bmi                       |
+| PS ECOG                            | at the time of initiation of Bexarotene                                                               | ps_ecog                   |
+| CTCL type                          | according to WHO-EORTC 2018                                                                           | ctcl_type                 |
+| Stage                              | at the time of initiation of Bexarotene                                                               | stage                     |
+| Early Stage?                       | 1= yes   0= no                                                                                         | stage_early               |
+| T                                  | at the time of initiation of Bexarotene                                                               | t_stage                   |
+| N                                  | at the time of initiation of Bexarotene                                                               | n_stage                   |
+| M                                  | at the time of initiation of Bexarotene                                                               | m_stage                   |
+| B                                  | at the time of initiation of Bexarotene                                                               | b_stage                   |
+| Time since Dg.                     | at the time of initiation of Bexarotene (months)                                                      | months_since_diagnosis    |
+| Time since 1. clin. manifestation  | Before the initiation of Bexarotene (months)                                                          | months_since_first_symptom|
+| Radiologic Examinations           | Dg. Procedures, such as CT, PET, USG.. Any time during the course of disease (0=only clin. Exam.)     | radiologic_exams          |
+| SDT before                         | Skin directed therapy preceding the initiation of bexarotene, incl. Radiotherapy                      | sdt_before                |
+| SysTh before                       | Systemic treatments preceding the initiation of bexarotene (incl. + TSEI with > 50% BSA) + TSEI >50% BSA | systh_before           |
+| First syst, Therapy?               | 1= yes   0= no                                                                                         | first_syst_th             |
+| Initial dose                       | Daily Dose (mg/m²)                                                                                    | initial_dose_mg_m2        |
+| Final dose                         | The highest tolerable daily dose (mg/m²)                                                              | final_dose_mg_m2          |
+| Initial SysTh                      | Other antineoplastic Systemic therapies at the time of initiation of Bexarotene                       | initial_systh             |
+| SysTh during the Treatment         | Other antineoplastic Systemic therapies during the treatment with bexarotene (duration in months)     | systh_during_treatment    |
+| SDT during the Treatment           | Skin directed Therapy during the treatment with bexarotene                                            | sdt_during_treatment      |
+| Best treatment response            | SD, PR, CR                                                                                            | response_best             |
+| Response?                          | 1=PR, CR,  0= SD,PD                                                                                   | response_achieved         |
+| MonoTh?                            | was the best treatment response achieved during the monotherapy (1=yes, 0=no)                         | monotherapy               |
+| Time to Response                   | time to achieve the best treatment response (0=only SD achieved)                                      | response_time_to          |
+| Duration of response               | until progression or last visit (months)                                                              | response_duration         |
+| Progression?                       | progression during the treatment (1=yes, 0=no)                                                        | progression               |
+| Duration of treatment              | (months)                                                                                              | treatment_duration        |
+| Reason to discontinuation          | 0=treatment continues                                                                                 | discontinuation_reason    |
+| Discontinued because of AE?        | 1=yes, 0=no                                                                                            | discontinued_due_to_ae    |
+| TTNT                                | TTNT (x = TTNT not achieved )                                                                         | ttnt                      |
+| TTNT achieved?                     | 1=yes, 0=no (no "next treatment" given)                                                               | ttnt_achieved             |
+| Comorbidities                      |                                                                                                       | comorbidities             |
+| Dyslipidemia before bexaroten?     | 1=yes, 0=no                                                                                            | dyslipidemia_before       |
+| Thyroid disease before bexarotene? | 1=yes, 0=no                                                                                            | thyroid_disease_before    |
+| Adverse events (treatment)         | (all grades)                                                                                           | ae_complete_all           |
+| AE Grade 3 / 4 (event. 5)          |                                                                                                       | ae_complete_grade_3_4     |
+| AE Grade 3/4                       | 1=yes, 0=no                                                                                            | ae_grade_3_4              |
+| AE hyperTAG any Grade?             | 1=yes, 0=no                                                                                            | ae_hyperTAG_any           |
+| AE hyperTAG Grade 3/4?             | 1=yes, 0=no                                                                                            | ae_hyperTAG_grade_3_4     |
+| AE Liver Tests elevation (any grade)| 1=yes, 0=no                                                                                           | ae_liver                  |
+| Haematologic AE (any grade)        | 1=yes, 0=no                                                                                            | ae_hemato                 |
 
 
-# Exporatory Data Analyses (EDA) {.tabset .tabset-fade .tabset-pills}
+# Exporatory Data Analyses (EDA) {.tabset .tabset-fade .tabset-pills}  
+
+Exploratory Data Analysis (EDA) involves visualizing and summarizing data to uncover patterns, anomalies, and relationships, assess data quality, and guide feature selection. By identifying outliers, missing values, and distributions, EDA informs model choice, suggests transformations, and refines hypotheses, ensuring more reliable and insightful downstream analysis.
+
+## Overview {.unnumbered}  
+
+In the table below, a basic overview of the analyzed data is presented. Seven variables contain one missing value each. Additionally, $discontinued_due_to_ae$ and $response_duration$ contain 12 and two missing values, respectively. 
 
 
-## Overview {.unnumbered}
 ```{r eda_skimr, results="asis"}
 d04 |> 
   select(-initials) |>  
@@ -191,6 +246,8 @@ d04 |>
 
 
 ## Proportional Bar plot {.unnumbered}
+
+A proportional bar plot illustrates the relative size of each category by showing values as proportions. The figure below reveals notable imbalances across most variables. In several cases, such as $ae\_hyperTAG\_any$, $ae\_hemato$, and $thyroid\_disease\_before$, a strong disproportion is evident. Such imbalance can compromise statistical analyses by violating assumptions like equal variance or sample size, thereby reducing the ability to detect patterns in smaller subgroups.
 
 ```{r eda_barplot}
 d04 |> 
@@ -213,6 +270,10 @@ d04 |>
 # Statistics  
 ## Multiple correspondence analyses  
 
+Multiple Correspondence Analysis (MCA) is a dimensionality reduction technique for categorical data. It helps identify associations among variable categories and visualizes underlying structures by projecting data into a low-dimensional space. In the first figure, the ten most influential variables are shown, with closer items indicating stronger co-occurrence.
+
+The second figure groups individuals based on variables such as $sex$ and $ae\_grade\_3\_4$, and overlays concentration ellipses. These ellipses highlight the degree of overlap and separation between groups. For example, a clear separation is observed for $ae\_grade\_3\_4$, while $sex$ does not show such distinction.
+
 ```{r stat_mca, out.width="50%"}
 res_mca_02 <- d04 |> select(-initials, -age, -bmi) |> na.omit() |> 
   mutate(across(everything(),as.factor)) |> 
@@ -232,6 +293,16 @@ fviz_ellipses(res_mca_02, c("sex", "ae_grade_3_4"),
 ## I. section  
 ### Logistic model  
 
+The table below evaluates the effect of selected independent variables on various adverse outcomes, focusing on tolerability and potential predictors. Among all combinations tested, $discontinued\_due\_to\_ae$ was significantly associated with $monotherapy$ (p = 0.043), and $ae\_hyperTAG\_grade\_3\_4$ was significantly associated with $bmi$ (p = 0.01).
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Dependent variable} &\sim Bernoulli\left(\operatorname{prob}_{\operatorname{Dependent variable} = \operatorname{1}}= \hat{P}\right) \\
+ \log\left[ \frac { \hat{P} }{ 1 - \hat{P} } \right] 
+ &= \alpha + \beta_{1}(\operatorname{Independent variable})
+\end{aligned}
+$$
 
 
 ```{r stat_1_logistic}
@@ -274,10 +345,21 @@ res_logist_02_tab |>
 
 
 ## II. section  
+
+In the second part, we focused on evaluation of efficacy and its influencing factors.
+
 ### Logistic regression  
 
+In the table below, we see that $stage\_early$ was affect by $first\_sys\_therapy$ (p=0.01) and $monotherapy$ (p=0.02).
 
-
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Dependent variable} &\sim Bernoulli\left(\operatorname{prob}_{\operatorname{Dependent variable} = \operatorname{1}}= \hat{P}\right) \\
+ \log\left[ \frac { \hat{P} }{ 1 - \hat{P} } \right] 
+ &= \alpha + \beta_{1}(\operatorname{Independent variable})
+\end{aligned}
+$$
 
 ```{r stat_2_logistic}
 res_logist_03 <- d04 |> 
@@ -319,57 +401,95 @@ res_logist_03_tab |>
 
 ### Survival analyses {.tabset .tabset-fade .tabset-pills}  
 
-#### Time to next treatment  {.tabset}  
+A Kaplan–Meier analysis estimates the probability of an event (e.g., death, relapse) over time in a cohort, properly accounting for censored observations (subjects lost to follow-up or event-free at last contact). The result is a stepwise survival curve that drops at each event time, providing a clear visualization of time-to-event data.  
+
+A Cox proportional hazards (PH) model assesses the effect of one or more covariates on the hazard (instantaneous event rate) over time, without requiring specification of the baseline hazard function. It yields hazard ratios (HRs) that represent the relative risk associated with covariates, assuming the hazard functions are proportional between groups.
+
+
+#### Time to next treatment  {.tabset .unnumbered}  
 
 ##### Kaplan-Meier Overall  {.unnumbered}  
+
+A single Kaplan–Meier curve summarizes the entire cohort’s survival experience:  
+- **Median survival time:** The point at which the estimated survival probability falls to 50%.  
+- **Fixed-time survival rates:** Survival probabilities at landmarks such as 1 year or 5 years.  
+- **Numbers at risk/censoring:** Often displayed below the curve to show how many subjects remain under observation at each interval.
+
 
 ```{r stat_2_surv_ttnt_overall}
 res_surv_ttnt$surv[[1]]$`KM overall`
 ```
+
+
 ##### Kaplan-Meier Stratified  {.tabset .unnumbered}  
 
-###### PS-ECOG {unnumbered}  
+When you divide the cohort into subgroups (e.g., treatment vs. control, biomarker high vs. low), you generate separate curves to compare survival patterns:  
+- **Overlaid curves:** Different line styles or colors distinguish each subgroup.  
+- **Dashed line at 50% survival:** Marks the median survival time across curves for visual comparison.  
+- **Log-rank test p-value:** Assesses whether observed differences between curves are statistically significant.  
+- **Hazard ratio (optional):** From a Cox model, quantifies the relative risk between strata.  
+- **Group-specific medians and landmark rates:** Reported side-by-side to highlight subgroup differences.  
+- **P-values:** P-values indicate the overall effect of the variable on the dependent variable without sub-setting
+
+###### PS-ECOG {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_ecog}
 res_surv_ttnt$surv[[1]]$`KM stratified`
 ```
 
-###### First Systemic Therapy {unnumbered}  
+###### First Systemic Therapy {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_firstSYSther}
 res_surv_ttnt$surv[[2]]$`KM stratified`
 ```
 
-###### AE Grade 3-4 {unnumbered}  
+###### AE Grade 3-4 {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_aeGRADE34}
 res_surv_ttnt$surv[[3]]$`KM stratified`
 ```
 
-###### Monotherapy {unnumbered}  
+###### Monotherapy {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_monotherapy}
 res_surv_ttnt$surv[[4]]$`KM stratified`
 ```
 
-###### Gender {unnumbered}  
+###### Gender {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_sex}
 res_surv_ttnt$surv[[5]]$`KM stratified`
 ```
 
-###### BMI {unnumbered}  
+###### BMI {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_bmi}
 res_surv_ttnt$surv[[6]]$`KM stratified`
 ```
 
-###### Age {unnumbered}  
+###### Age {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_age}
 res_surv_ttnt$surv[[7]]$`KM stratified`
 ```
 
-
-
-
-
 ##### Cox Proportional Hazards {.tabset .unnumbered}  
 
-###### PS-ECOG {unnumbered}  
+***Cox PH Table Output***
+
+A standard Cox PH results table typically includes:  
+- **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.  
+- **95% Confidence Interval (CI):** Lower and upper bounds for the HR, indicating precision.  
+- **p-value:** Significance of the association between each covariate and the hazard.
+
+***Cox PH Plot***
+
+To visualize model-based survival differences you can use:
+- **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
+- **Quartile-based plot:** Split a continuous covariate into four quantiles (Q1–Q4) and plot four Kaplan–Meier curves to illustrate dose–response patterns.
+
+***Forest Plot for Quartile-Based Analysis***
+
+A forest plot for a continuous covariate divided into quartiles displays:
+- **Quartile labels (Q1–Q4):** Listed on the vertical axis, with Q1 usually as the reference.  
+- **Point estimates and CIs:** Horizontal lines and markers showing the HR ± 95% CI for each quartile relative to Q1.  
+- **Trend p-value (optional):** Overall test for trend across quartiles, if desired.  
+
+
+###### PS-ECOG {.unnumbered}  
 ```{r stat_2_surv_cox_table_ecog}
 res_surv_ttnt$surv[[1]]$`CoxPH print table`
 ```
@@ -379,59 +499,409 @@ res_surv_ttnt$surv[[1]]$`CoxPH plot`
 ```
 
 
-
-
-
-
-
-```{r stat_2_surv_cox_plot}
+###### First Systemic Therapy {.unnumbered}  
+```{r stat_2_surv_cox_table_firstTH}
 res_surv_ttnt$surv[[2]]$`CoxPH print table`
 ```
 
-
-```{r stat_2_surv_cox_plot}
+```{r stat_2_surv_cox_plot_firstTH}
 res_surv_ttnt$surv[[2]]$`CoxPH plot`
 ```
 
 
+###### AE Grade 3-4 {.unnumbered}  
+```{r stat_2_surv_cox_table_aeGrade}
+res_surv_ttnt$surv[[3]]$`CoxPH print table`
+```
 
+```{r stat_2_surv_cox_plot_aeGrade}
+res_surv_ttnt$surv[[3]]$`CoxPH plot`
+```
+
+
+###### Monotherapy {.unnumbered}  
+```{r stat_2_surv_cox_table_monotherapy}
+res_surv_ttnt$surv[[4]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_cox_plot_monotherapy}
+res_surv_ttnt$surv[[4]]$`CoxPH plot`
+```
+
+
+###### Gender {.unnumbered}  
+```{r stat_2_surv_ttnt_cox_table_gender}
+res_surv_ttnt$surv[[5]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_ttnt_cox_plot_gender}
+res_surv_ttnt$surv[[5]]$`CoxPH plot`
+```
+
+
+###### BMI {.unnumbered}  
+```{r stat_2_surv_cox_table_bmi}
+res_surv_ttnt$surv[[6]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_cox_plot_bmi}
+res_surv_ttnt$surv[[6]]$`CoxPH plot`
+```
 
 ```{r stat_2_surv_cox_forest_bmi}
-res_surv_ttnt$surv[[6]]$`CoxPH forest plot qunatile`
+res_surv_ttnt$surv[[6]]$`CoxPH forest plot`
+```
+
+
+###### Age {.unnumbered}  
+```{r stat_2_surv_cox_table_age}
+res_surv_ttnt$surv[[7]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_cox_plot_age}
+res_surv_ttnt$surv[[7]]$`CoxPH plot`
 ```
 
 ```{r stat_2_surv_cox_forest_age}
-res_surv_ttnt$surv[[4]]$`CoxPH forest plot qunatile`
+res_surv_ttnt$surv[[7]]$`CoxPH forest plot`
 ```
 
 
 
+#### Duration treatment  {.tabset .unnumbered}  
+
+##### Kaplan-Meier Overall  {.unnumbered}  
+
+A single Kaplan–Meier curve summarizes the entire cohort’s survival experience:  
+- **Median survival time:** The point at which the estimated survival probability falls to 50%.  
+- **Fixed-time survival rates:** Survival probabilities at landmarks such as 1 year or 5 years.  
+- **Numbers at risk/censoring:** Often displayed below the curve to show how many subjects remain under observation at each interval.
 
 
-
-
-
-
-
-
-
-#### Duration treatment  {.unnumbered}  
-
-```{r stat_2_surv_durTRTeffect}
+```{r stat_2_surv_durTRTeffect_overall}
 res_surv_durTRTeffect$surv[[1]]$`KM overall`
 ```
 
 
-#### Disease Progression & Response Time  {.unnumbered}  
+##### Kaplan-Meier Stratified  {.tabset .unnumbered}  
 
-```{r stat_2_surv_response}
-res_surv_response
+When you divide the cohort into subgroups (e.g., treatment vs. control, biomarker high vs. low), you generate separate curves to compare survival patterns:  
+- **Overlaid curves:** Different line styles or colors distinguish each subgroup.  
+- **Dashed line at 50% survival:** Marks the median survival time across curves for visual comparison.  
+- **Log-rank test p-value:** Assesses whether observed differences between curves are statistically significant.  
+- **Hazard ratio (optional):** From a Cox model, quantifies the relative risk between strata.  
+- **Group-specific medians and landmark rates:** Reported side-by-side to highlight subgroup differences.  
+
+###### PS-ECOG {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_ecog}
+res_surv_durTRTeffect$surv[[1]]$`KM stratified`
+```
+
+###### First Systemic Therapy {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_firstSYSther}
+res_surv_durTRTeffect$surv[[2]]$`KM stratified`
+```
+
+###### AE Grade 3-4 {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_aeGRADE34}
+res_surv_durTRTeffect$surv[[3]]$`KM stratified`
+```
+
+###### Monotherapy {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_monotherapy}
+res_surv_durTRTeffect$surv[[4]]$`KM stratified`
+```
+
+###### Gender {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_sex}
+res_surv_durTRTeffect$surv[[5]]$`KM stratified`
+```
+
+###### BMI {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_bmi}
+res_surv_durTRTeffect$surv[[6]]$`KM stratified`
+```
+
+###### Age {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_stratified_age}
+res_surv_durTRTeffect$surv[[7]]$`KM stratified`
+```
+
+##### Cox Proportional Hazards {.tabset .unnumbered}  
+
+***Cox PH Table Output***
+
+A standard Cox PH results table typically includes:  
+- **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.  
+- **95% Confidence Interval (CI):** Lower and upper bounds for the HR, indicating precision.  
+- **p-value:** Significance of the association between each covariate and the hazard.
+
+***Cox PH Plot***
+
+To visualize model-based survival differences you can use:
+- **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
+- **Quartile-based plot:** Split a continuous covariate into four quantiles (Q1–Q4) and plot four Kaplan–Meier curves to illustrate dose–response patterns.
+
+***Forest Plot for Quartile-Based Analysis***
+
+A forest plot for a continuous covariate divided into quartiles displays:
+- **Quartile labels (Q1–Q4):** Listed on the vertical axis, with Q1 usually as the reference.  
+- **Point estimates and CIs:** Horizontal lines and markers showing the HR ± 95% CI for each quartile relative to Q1.  
+- **Trend p-value (optional):** Overall test for trend across quartiles, if desired.  
+
+
+###### PS-ECOG {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_ecog}
+res_surv_durTRTeffect$surv[[1]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_ecog}
+res_surv_durTRTeffect$surv[[1]]$`CoxPH plot`
+```
+
+
+###### First Systemic Therapy {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_firthTH}
+res_surv_durTRTeffect$surv[[2]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_firstTH}
+res_surv_durTRTeffect$surv[[2]]$`CoxPH plot`
+```
+
+
+###### AE Grade 3-4 {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_aeGrade}
+res_surv_durTRTeffect$surv[[3]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_aeGrade}
+res_surv_durTRTeffect$surv[[3]]$`CoxPH plot`
+```
+
+
+###### Monotherapy {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_monotherapy}
+res_surv_durTRTeffect$surv[[4]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_monotherapy}
+res_surv_durTRTeffect$surv[[4]]$`CoxPH plot`
+```
+
+
+###### Gender {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_gender}
+res_surv_durTRTeffect$surv[[5]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_gender}
+res_surv_durTRTeffect$surv[[5]]$`CoxPH plot`
+```
+
+
+###### BMI {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_bmi}
+res_surv_durTRTeffect$surv[[6]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_bmi}
+res_surv_durTRTeffect$surv[[6]]$`CoxPH plot`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_forest_bmi}
+res_surv_durTRTeffect$surv[[6]]$`CoxPH forest plot`
+```
+
+
+###### Age {.unnumbered}  
+```{r stat_2_surv_durTRTeffect_cox_table_age}
+res_surv_durTRTeffect$surv[[7]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_plot_age}
+res_surv_durTRTeffect$surv[[7]]$`CoxPH plot`
+```
+
+```{r stat_2_surv_durTRTeffect_cox_forest_age}
+res_surv_durTRTeffect$surv[[7]]$`CoxPH forest plot`
+```
+
+
+
+#### Disease Progression & Response Time  {.tabset .unnumbered}  
+##### Kaplan-Meier Overall  {.unnumbered}  
+
+A single Kaplan–Meier curve summarizes the entire cohort’s survival experience:  
+- **Median survival time:** The point at which the estimated survival probability falls to 50%.  
+- **Fixed-time survival rates:** Survival probabilities at landmarks such as 1 year or 5 years.  
+- **Numbers at risk/censoring:** Often displayed below the curve to show how many subjects remain under observation at each interval.
+
+
+```{r stat_2_surv_response_overall}
+res_surv_response$surv[[1]]$`KM overall`
+```
+
+
+##### Kaplan-Meier Stratified  {.tabset .unnumbered}  
+
+When you divide the cohort into subgroups (e.g., treatment vs. control, biomarker high vs. low), you generate separate curves to compare survival patterns:  
+- **Overlaid curves:** Different line styles or colors distinguish each subgroup.  
+- **Dashed line at 50% survival:** Marks the median survival time across curves for visual comparison.  
+- **Log-rank test p-value:** Assesses whether observed differences between curves are statistically significant.  
+- **Hazard ratio (optional):** From a Cox model, quantifies the relative risk between strata.  
+- **Group-specific medians and landmark rates:** Reported side-by-side to highlight subgroup differences.  
+
+###### PS-ECOG {.unnumbered}  
+```{r stat_2_surv_response_stratified_ecog}
+res_surv_response$surv[[1]]$`KM stratified`
+```
+
+###### First Systemic Therapy {.unnumbered}  
+```{r stat_2_surv_response_stratified_firstSYSther}
+res_surv_response$surv[[2]]$`KM stratified`
+```
+
+###### AE Grade 3-4 {.unnumbered}  
+```{r stat_2_surv_response_stratified_aeGRADE34}
+res_surv_response$surv[[3]]$`KM stratified`
+```
+
+###### Monotherapy {.unnumbered}  
+```{r stat_2_surv_response_stratified_monotherapy}
+res_surv_response$surv[[4]]$`KM stratified`
+```
+
+###### Gender {.unnumbered}  
+```{r stat_2_surv_response_stratified_sex}
+res_surv_response$surv[[5]]$`KM stratified`
+```
+
+###### BMI {.unnumbered}  
+```{r stat_2_surv_response_stratified_bmi}
+res_surv_response$surv[[6]]$`KM stratified`
+```
+
+###### Age {.unnumbered}  
+```{r stat_2_surv_response_stratified_age}
+res_surv_response$surv[[7]]$`KM stratified`
+```
+
+##### Cox Proportional Hazards {.tabset .unnumbered}  
+
+***Cox PH Table Output***
+
+A standard Cox PH results table typically includes:  
+- **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.  
+- **95% Confidence Interval (CI):** Lower and upper bounds for the HR, indicating precision.  
+- **p-value:** Significance of the association between each covariate and the hazard.
+
+***Cox PH Plot***
+
+To visualize model-based survival differences you can use:
+- **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
+- **Quartile-based plot:** Split a continuous covariate into four quantiles (Q1–Q4) and plot four Kaplan–Meier curves to illustrate dose–response patterns.
+
+***Forest Plot for Quartile-Based Analysis***
+
+A forest plot for a continuous covariate divided into quartiles displays:
+- **Quartile labels (Q1–Q4):** Listed on the vertical axis, with Q1 usually as the reference.  
+- **Point estimates and CIs:** Horizontal lines and markers showing the HR ± 95% CI for each quartile relative to Q1.  
+- **Trend p-value (optional):** Overall test for trend across quartiles, if desired.  
+
+
+
+###### PS-ECOG {.unnumbered}  
+```{r stat_2_surv_response_cox_table_ecog}
+res_surv_response$surv[[1]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_ecog}
+res_surv_response$surv[[1]]$`CoxPH plot`
+```
+
+
+###### First Systemic Therapy {.unnumbered}  
+```{r stat_2_surv_response_cox_table_firstTH}
+res_surv_response$surv[[2]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_firstTH}
+res_surv_response$surv[[2]]$`CoxPH plot`
+```
+
+
+###### AE Grade 3-4 {.unnumbered}  
+```{r stat_2_surv_response_cox_table_aeGrade}
+res_surv_response$surv[[3]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_aeGrade}
+res_surv_response$surv[[3]]$`CoxPH plot`
+```
+
+
+###### Monotherapy {.unnumbered}  
+```{r stat_2_surv_response_cox_table_monotherapy}
+res_surv_response$surv[[4]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_monotherapy}
+res_surv_response$surv[[4]]$`CoxPH plot`
+```
+
+
+###### Gender {.unnumbered}  
+```{r stat_2_surv_response_cox_table_gender}
+res_surv_response$surv[[5]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_gender}
+res_surv_response$surv[[5]]$`CoxPH plot`
+```
+
+
+###### BMI {.unnumbered}  
+```{r stat_2_surv_response_cox_table_bmi}
+res_surv_response$surv[[6]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_bmi}
+res_surv_response$surv[[6]]$`CoxPH plot`
+```
+
+```{r stat_2_surv_response_cox_forest_bmi}
+res_surv_response$surv[[6]]$`CoxPH forest plot`
+```
+
+
+###### Age {.unnumbered}  
+```{r stat_2_surv_response_cox_table_age}
+res_surv_response$surv[[7]]$`CoxPH print table`
+```
+
+```{r stat_2_surv_response_cox_plot_age}
+res_surv_response$surv[[7]]$`CoxPH plot`
+```
+
+```{r stat_2_surv_response_cox_forest_age}
+res_surv_response$surv[[7]]$`CoxPH forest plot`
 ```
 
 
 
 ### Linear regression  
-#### Time to effect  
+#### Time to response  
+
+Linear regression was identified as the most suitable model for the non-zero subset of the *Time to response* variable, based on residual analysis. The table below shows that none of the tested independent variables had a statistically significant association with $response\_time\_to$.
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Time to response} &= \alpha + \beta_{1}(\operatorname{independent variable}) + \epsilon\\
+\varepsilon_i &\sim \mathcal{N}(0,\,\sigma^2)
+\end{aligned}
+$$
 
 
 ```{r}
@@ -476,8 +946,7 @@ res_timeTOeffect_tab |>
 
 # Conclussion  
 
-
-
+In summary, this analysis highlights key factors influencing both the tolerability and efficacy of bexarotene treatment in patients with T-lymphoma. Logistic regression revealed that monotherapy was associated with treatment discontinuation due to adverse events, while BMI influenced the occurrence of high-grade hypertriglyceridemia. Regarding treatment efficacy, early-stage disease was more likely in patients receiving first-line systemic therapy and those on monotherapy. However, no significant predictors were identified for time to response in the linear model. These findings can inform clinical decision-making regarding patient selection and risk stratification during bexarotene therapy.
 
 # Session info
 
@@ -515,32 +984,8 @@ kable(
 
 <summary>Used packages</summary>
 
-```{r session_info_2}
-df_session_packages <- devtools::session_info()$packages %>% 
-  as.data.frame(.) %>% 
-  filter(attached == TRUE) %>% 
-  dplyr::select(loadedversion, date) %>% 
-  rownames_to_column
-
-colnames(df_session_packages) <- c("Package", "Loaded version", "Date")
-
-rows <- seq_len(nrow(df_session_packages) %/% 2)
-l_session_packages <- list(df_session_packages[rows,1:3],  
-                           matrix(numeric(), nrow=0, ncol=1),
-                           df_session_packages[-rows, 1:3])
-
-kable(
-  l_session_packages, 
-  row.names = T,
-  booktabs = T, 
-  align = "l",
-  caption = "(ref:Reproducibility-SessionInfo-R-packages-title)", # complete caption for main document
-  caption.short = " " # "(ref:Reproducibility-SessionInfo-R-packages-caption)" # short caption for LoT
-) %>% kable_styling(full_width = F,
-                    latex_options = c(
-                      "hold_position" # stop table floating
-                    ),bootstrap_options = c("striped", "hover", "condensed", "responsive") 
-) 
+```{r session_info_2, results = 'asis'}
+subset(data.frame(sessioninfo::package_info()), attached==TRUE, c(package, loadedversion, date))
 ```
 
 </details>
