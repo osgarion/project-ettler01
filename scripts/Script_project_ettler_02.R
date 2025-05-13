@@ -122,7 +122,8 @@ res_logist_02_tab |>
 
 ## II. section ----
 ### Logistic regression ----
-#### Model ----
+#### Without `Stage Early` ----
+##### Model ----
 res_logist_03 <- d04 |> 
   select(all_of(c(variab_indep_02, variab_dep_02a))) |> 
   mutate(sex = if_else(sex == "M", 1, 0)) |> 
@@ -140,16 +141,16 @@ res_logist_03 <- d04 |>
                               data = .x, family = "binomial")),
          tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
 
-#### Table ----
+##### Table ----
 res_logist_03_tab <- res_logist_03 |> 
   unnest(tidier) |> 
   filter(term == "indep_value") |> 
   select(-data, -mod, -term) |> 
   mutate(across(where(is.numeric), ~round(.x,3)))
 
-# export(res_logist_03_tab, "output/tables/250428_partA_logistic_02.xlsx")
+export(res_logist_03_tab, "output/tables/250428_partA_logistic_02.xlsx")
 
-#### kableExtra ----
+##### kableExtra ----
 res_logist_03_tab |> 
   select(-std.error, - statistic) |> 
   kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
@@ -162,6 +163,74 @@ res_logist_03_tab |>
     bootstrap_options = c("striped", "hover", "condensed", "responsive")
   ) %>%
   collapse_rows(columns = 1, valign = "top")
+
+
+#### With `Stage Early`-----
+##### Model ----
+res_logist_04 <- d04 |> 
+  select(stage_early, all_of(c(variab_indep_02, variab_dep_02a))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_02a),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_02),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value + stage_early, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)),
+         mod2 = map(data, ~glm(dep_value ~ indep_value * stage_early, 
+                              data = .x, family = "binomial")),
+         tidier2 = map(mod2, ~tidy(.x, conf.int = T, exp = T))
+         )
+
+##### Table ----
+res_logist_04_tab_a <- res_logist_04 |> 
+  unnest(tidier) |> 
+  filter(!str_detect(term, "Intercept")) |> 
+  select(-data, -mod, -mod2, -tidier2) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_04_tab_b <- res_logist_04 |> 
+  unnest(tidier2) |> 
+  filter(!str_detect(term, "Intercept")) |> 
+  select(-data, -mod, -mod2, -tidier) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+
+# export(res_logist_04_tab_a, "output/tables/250428_partA_logistic_03_a.xlsx")
+# export(res_logist_04_tab_b, "output/tables/250428_partA_logistic_03_b.xlsx")
+
+##### kableExtra ----
+res_logist_04_tab_a |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Adjusted for", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1:2, valign = "top")
+
+res_logist_04_tab_b |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Adjusted for", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1:2, valign = "top")
 
 ### Survival analyses ----
 # https://www.themillerlab.io/posts/survival_analysis/

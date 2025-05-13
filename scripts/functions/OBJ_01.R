@@ -22,7 +22,7 @@ variab_indep_01 <- c("age", "sex", "bmi", "ps_ecog", "stage_early", "first_syst_
                      "thyroid_disease_before", "monotherapy"  
 )
 
-variab_dep_02a <- c("stage_early", "response_achieved" 
+variab_dep_02a <- c("response_achieved" 
 )
 variab_dep_02b <- c("treatment_duration", "discontinuation_reason",
                     "ttnt", "ttnt_achieved"

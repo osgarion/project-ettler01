@@ -348,9 +348,12 @@ res_logist_02_tab |>
 
 In the second part, we focused on evaluation of efficacy and its influencing factors.
 
-### Logistic regression  
+### Logistic regression {.tabset .tabset-fade .tabset-pills}  
 
-In the table below, we see that $stage\_early$ was affect by $first\_sys\_therapy$ (p=0.01) and $monotherapy$ (p=0.02).
+
+#### Complete {.unnumbered}  
+
+In the table below, we see that $response\_achieved$ was not affected by any selected independent variable.
 
 <u>**The model equation:**</u>
 $$
@@ -398,6 +401,67 @@ res_logist_03_tab |>
   ) %>%
   collapse_rows(columns = 1, valign = "top")
 ```
+
+
+
+#### With *Stage Early* definition {.unnumbered}  
+
+In the table below, we see that $response\_achieved$ was not affected by any selected independent variable ever after the adjustation for $stage\_early$.  
+I also tried the interaction between $response\_achieved$ and $stage\_early$ without success.
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Dependent variable} &\sim Bernoulli\left(\operatorname{prob}_{\operatorname{Dependent variable} = \operatorname{1}}= \hat{P}\right) \\
+ \log\left[ \frac { \hat{P} }{ 1 - \hat{P} } \right] 
+ &= \alpha + \beta_{1}(\operatorname{Independent variable}) + \beta_{2}(\operatorname{Stage Early})
+\end{aligned}
+$$
+
+```{r stat_2_logistic_stageEarly}
+res_logist_04 <- d04 |> 
+  select(stage_early, all_of(c(variab_indep_02, variab_dep_02a))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_02a),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_02),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value + stage_early, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)),
+         mod2 = map(data, ~glm(dep_value ~ indep_value * stage_early, 
+                              data = .x, family = "binomial")),
+         tidier2 = map(mod2, ~tidy(.x, conf.int = T, exp = T))
+         )
+
+res_logist_04_tab_a <- res_logist_04 |> 
+  unnest(tidier) |> 
+  filter(!str_detect(term, "Intercept")) |> 
+  select(-data, -mod, -mod2, -tidier2) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_04_tab_a |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Adjusted for", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1:2, valign = "top")
+```
+
+
+
 
 ### Survival analyses {.tabset .tabset-fade .tabset-pills}  
 
