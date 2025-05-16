@@ -148,7 +148,7 @@ res_logist_03_tab <- res_logist_03 |>
   select(-data, -mod, -term) |> 
   mutate(across(where(is.numeric), ~round(.x,3)))
 
-export(res_logist_03_tab, "output/tables/250428_partA_logistic_02.xlsx")
+# export(res_logist_03_tab, "output/tables/250428_partA_logistic_02.xlsx")
 
 ##### kableExtra ----
 res_logist_03_tab |> 

@@ -931,11 +931,11 @@ res_surv_response$surv[[6]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_response_cox_plot_bmi}
-res_surv_response$surv[[6]]$`CoxPH plot`
+res_surv_response$surv[[6]]$`CoxPH plot quantile`
 ```
 
 ```{r stat_2_surv_response_cox_forest_bmi}
-res_surv_response$surv[[6]]$`CoxPH forest plot`
+res_surv_response$surv[[6]]$`CoxPH forest plot qunatile`
 ```
 
 
@@ -945,11 +945,11 @@ res_surv_response$surv[[7]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_response_cox_plot_age}
-res_surv_response$surv[[7]]$`CoxPH plot`
+res_surv_response$surv[[7]]$`CoxPH plot quantile`
 ```
 
 ```{r stat_2_surv_response_cox_forest_age}
-res_surv_response$surv[[7]]$`CoxPH forest plot`
+res_surv_response$surv[[7]]$`CoxPH forest plot qunatile`
 ```
 
 
