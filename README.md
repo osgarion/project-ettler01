@@ -2,6 +2,45 @@
 Retrospektivní analýza pacientů s primárním kožním T buněčným lymfomem (Mycosis fungoides a Sézaryho syndrom) léčených bexarotenem (fir.název Targretin). Celkem 45 pacientů.
 
 ##### Communication #####
+#2025-05-18
+Ahoj Jirko, 
+já bych se měl omlouvat a naopak děkuju, že na naši práci pořád takhle myslíš : ).
+
+Ohledně Tvého posledního emailu -> mou odpověď asi nenajdeš v dalších odstavcích, ale nakonec se k Tvému návrhu, myslím, dostanem a využijem. Pořád si nejsem jistý, jak přesně tu část (II) o účinnosti pojmout, ale nějak se k cíli postupně dostanem :). Jinak pořád platí ta tabulka v jednom z emailů níže (April 19).
+
+
+(I) Hodnocení snášenlivosti a faktorů snášenlivost ovlivňujících:
+ - Tady jsem z většiny spokojený s tím, jak jsi udělal poslední zpracování, ale je tu pár aspektů, které bych rád ještě vypiloval a doplnil a prosím jen, aby ses na to podíval a třeba zase navrhl termín krátkého videocallu:
+1) Discontinued due to AE (sloupec AG) - ti, kteří léčbu pořád užívají, bych z hodnocení vynechal (tedy "když museli ukončit léčbu, byl důvod ukončení AE?). Takoví pacienti buď nemají v buňce nic, nebo  x.
+2) BMI a hyperTAG Grade 3/4 - prosím o nějaké grafické znároznění, jak trenduje stoupající BMI s vyšším rizikem výskytu hyperTAG Grade 3/4.
+3) BMI a hyperTAG Grade 3/4 - prosím o srovnání:  riziko výskytu BMI u skupiny BMI <25 vs BMI ≥25   a BMI <30 vs BMI ≥30    
+    (Jsou to arbitrarní hodnoty pro nadváhu a obezitu, proto je to zajímavé. O tom, že tyhle stratifikace jsou statisticky poněkud smradlavé, jsi mi už povídal minule - přesto bych si to tak přál : ) 
+ 
+(II) Hodnocení účinnosti a faktorů ovlivňujících účinnost:
+Tady to je trochu složitější :)   Rozdíl v účinnosti u časných a pokročilých stadií bývá tak zásadní, že je třeba pacienty podle toho v analýze i rozdělit a také bývá zásadní, zda je léčba v monoterapii nebo ne, táákže.. 
+4) v krocích:
+1. krok - rozdělit hodnocení do tří kohort: i. všichni pacienti, ii. pacienti v časném stadiu (sloupec I = 1), iii. pacienti v pokročilém stadiu (sloupce I = 0)
+2. krok - zhodnotit již dříve definované výstupy (medián, průměr?), přičemž u 2, 4 a 5 to je hodnocení asi přes nějakou survival (kaplan-meier?) křivku, kde cílová hodnota je asi median survival time:
+ 1. ORR (celková účinnost = PR+CR/celkový počet pacientů = 61,4 % pro všechny pacienty bez selekce)  (sloupec Z)
+ 2. TTNT (time to next treatment) - křivka přežití (Kaplan Meier?) - sloupec AH je hodnota TTNT a sloupec AI je, zda TTNT pořád narůstá (= dosud nebyla podána další léčba)
+ 3. Doba do nástupu účinku (sloupec AB, jen nenulové hodnoty)
+ 4. Doba trvání účinku (sloupec AC je hodnota, sloupec AD, zda účinek v době hodnocení trvá - hodnota 0 znamená, že účinek trvá)
+ 5. Trvání léčby (sloupec AE je hodnote, sloupce AF uvádí, zda léčba stále trvá - hodnota 0)
+3. krok - srovnat, zda je v 5 výše uvedených parametrech statisticky signifikantní rozdíl mezi kohortou i. vs ii.  (časné vs pozdní stadium)
+4. krok - srovnat, zda je v 5 výše uvedených paramterech v rámci všech kohort signitikantní rozdíl mezi pacienty s monoterapií (sloupec AA  1 vs 0)
+5. krok - dle výsledků předchozích kroků bychom hodnotili dále : )
+
+
+Prosím, dej vědět, zda to dává smysl a zda bychom zase mohli udělat nějaký call. 
+A díky moc za Tvou angažovanost, posuny v hodnocení mě naplňují optimismem :)
+
+Měj se fajn,
+Jirka
+
+
+
+
+
 # 2025-05-04
 Discontinued to ae → x zaměnit za nulu
 Bmi → stratifikovat

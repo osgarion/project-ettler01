@@ -120,6 +120,117 @@ res_logist_02_tab |>
   ) %>%
   collapse_rows(columns = 1, valign = "top")
 
+### Additional analyses ----
+#### Stopped Treatment Due to AE ----
+# all NaNs were removed
+res_logist_05 <- d04 |> 
+  select(all_of(variab_indep_01), discontinued_due_to_ae) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(cols = all_of(variab_indep_01),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  filter(!is.na(discontinued_due_to_ae)) |>
+  group_by(indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(discontinued_due_to_ae ~ indep_value, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
+
+res_logist_05_tab <- res_logist_05 |> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_05_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+
+#### BMI a hyperTAG Grade 3/4 ----
+# Figure
+d04 |> 
+  ggplot(aes(x = factor(ae_hyperTAG_grade_3_4), 
+             y = bmi, 
+             color = factor(ae_hyperTAG_grade_3_4))) +
+  geom_beeswarm(cex = 3.5, size = 3.5) +
+  scale_color_brewer(
+    palette = "Set1", 
+    name = "Grade 3–4 Hypertriglyceridemia"
+  ) +
+  stat_summary(fun.data = ggpubr::median_mad, 
+               geom = "errorbar", 
+               color = "black", 
+               width = 0.2, 
+               size = 1) +
+  stat_summary(fun = median, 
+               geom = "crossbar", 
+               color = "black", 
+               size = 0.8, 
+               width = 0.3) +
+  labs(
+    y = "Body Mass Index (BMI)",
+    title = "Grade 3–4 Hypertriglyceridemia",
+    caption = "The error bars represent Median Absolute Deviations (MAD) intervals with the median."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text = element_text(size = 14, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold")
+  ) + stat_compare_means(paired = F)
+
+# Categorization
+res_fisher_01 <- d04 |> 
+  select(ae_hyperTAG_grade_3_4, bmi) |> 
+  mutate(
+    bmi = if_else(bmi < 25, 0, 1)
+  ) |> 
+  table() |> 
+  fisher.test() |> 
+  tidy() |> 
+  mutate(Treshold = "BMI = 25") |> 
+  relocate( method, Treshold) |> 
+  bind_rows(
+    d04 |> 
+      select(ae_hyperTAG_grade_3_4, bmi) |> 
+      mutate(
+        bmi = if_else(bmi < 30, 0, 1)
+      ) |> 
+      table() |> 
+      fisher.test() |> 
+      tidy() |> 
+      mutate(Treshold = "BMI = 30") |> 
+      relocate(Treshold)
+  )
+
+res_fisher_01 |> 
+  select(-alternative) |> 
+  kable(col.names = c("Method", "Threshold", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+
+# Fisher’s exact test was used to assess the association between high-grade hypertriglyceridemia and body mass index (BMI) thresholds. For BMI ≥25, the odds ratio (OR) was 2.74 (95% CI: 0.67–12.71, p = 0.134). For BMI ≥30, the association was statistically significant with an OR of 7.56 (95% CI: 1.19–86.18, p = 0.019).
+
+
 ## II. section ----
 ### Logistic regression ----
 #### Without `Stage Early` ----

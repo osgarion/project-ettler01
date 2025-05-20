@@ -7,7 +7,7 @@ pacman::p_load(update = T,
                psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
                factoextra, lmerTest, ggforce, lazyWeave, FactoMineR, sjPlot,
                kableExtra, survival, survminer, ggsurvfit, ggfortify, 
-               adjustedCurves
+               adjustedCurves, ggbeeswarm
                
 )
 ## function specification ----
@@ -28,7 +28,9 @@ conflicted::conflicts_prefer(
   dplyr::first, 
   dplyr::between,
   corrr::correlate,
-  purrr::set_names
+  purrr::set_names,
+  rstatix::chisq_test,
+  stats::fisher.test
 )
 
 ## Conflicted functions ----
