@@ -644,7 +644,7 @@ complex_surv_analyses_cat_02 <- function(df, time_to, event, independent) {
                                   data = surv_data,
                                   # Format Title
                                   title = "Kaplan-Meier Overall Survival",
-                                  subtitle = str_c("Stratified By ", independent),
+                                  subtitle = str_c("Stratified By Stage and Adjusted For ", independent),
                                   font.title = c(22, "bold", "black"),
                                   ggtheme = theme_classic() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))+ # theme_classic will give a white background with no lines on the plot
                                     theme(plot.subtitle = element_text(hjust = 0.5, size = 16, face = "italic")), 
@@ -696,7 +696,7 @@ complex_surv_analyses_cat_02 <- function(df, time_to, event, independent) {
   
   fig_cox_01 <- plot(prefig_cox_01, conf_int=TRUE, risk_table=TRUE,
                      title = "Cox Proportional Hazards",
-                     subtitle = str_c("Stratified By ", independent),
+                     subtitle = str_c("Stratified By Stage and Adjusted For ", independent),
                      risk_table_stratify=TRUE, method="direct",
                      risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
                      risk_table_theme=ggplot2::theme_classic(),

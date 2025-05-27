@@ -86,7 +86,7 @@ pacman::p_load(update = FALSE,
                psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
                factoextra, lmerTest, ggforce, lazyWeave, FactoMineR, sjPlot,
                kableExtra, survival, survminer, ggsurvfit, ggfortify, 
-               adjustedCurves
+               adjustedCurves, ggbeeswarm
   ) 
 ## function specification ----
 conflicted::conflicts_prefer(
@@ -107,7 +107,10 @@ conflicted::conflicts_prefer(
   dplyr::between,
   corrr::correlate,
   purrr::set_names,
-  dplyr::desc
+  dplyr::desc,
+  rstatix::chisq_test,
+  stats::fisher.test,
+  kableExtra::footnote
 )
 
 ## Manual 
@@ -117,7 +120,7 @@ my_skim <- skimr::skim_with(numeric = sfl(median = ~ median(., na.rm = TRUE),
                             append = TRUE)
 
 # Load objects
-load("markD_02.RData")
+load("markD_03.RData")
 
 # Load cores
 no_cores <- parallelly::availableCores() -1
@@ -268,6 +271,96 @@ d04 |>
 
 
 # Statistics  
+## BMI & hypertriglyceridemia  {.tabset .tabset-fade .tabset-pills}   
+### Box Plot - BMI {.unnumbered}  
+
+This figure illustrates the distribution of Body Mass Index (BMI) among patients categorized by the presence or absence of Grade 3–4 Hypertriglyceridemia. The x-axis represents two groups: 0 for patients without Grade 3–4 hypertriglyceridemia (red dots) and 1 for those with it (blue dots). Each dot corresponds to an individual patient's BMI value.  
+Central tendency and variability within each group are summarized using horizontal black bars, which indicate the median and the Median Absolute Deviation (MAD) intervals. This method provides a robust estimate of spread, especially useful in datasets that may contain outliers or are not normally distributed.  
+A Wilcoxon rank-sum test was used to assess the statistical significance of the difference in BMI between the two groups. The resulting p-value of 0.0069 suggests a statistically significant difference in BMI distribution between patients with and without Grade 3–4 hypertriglyceridemia.  
+Overall, the figure indicates that BMI is significantly associated with the occurrence of severe hypertriglyceridemia. Patients in the hypertriglyceridemia group (Group 1) tend to show greater variability in BMI and possibly higher values, which may contribute to the observed statistical difference.  
+
+```{r eda_boxplot_bmi}
+d04 |> 
+  ggplot(aes(x = factor(ae_hyperTAG_grade_3_4), 
+             y = bmi, 
+             color = factor(ae_hyperTAG_grade_3_4))) +
+  geom_beeswarm(cex = 3.5, size = 3.5) +
+  scale_color_brewer(
+    palette = "Set1", 
+    name = "Grade 3–4 Hypertriglyceridemia"
+  ) +
+  stat_summary(fun.data = ggpubr::median_mad, 
+               geom = "errorbar", 
+               color = "black", 
+               width = 0.2, 
+               size = 1) +
+  stat_summary(fun = median, 
+               geom = "crossbar", 
+               color = "black", 
+               size = 0.8, 
+               width = 0.3) +
+  labs(
+    y = "Body Mass Index (BMI)",
+    title = "Grade 3–4 Hypertriglyceridemia",
+    caption = "The error bars represent Median Absolute Deviations (MAD) intervals with the median."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text = element_text(size = 14, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold")
+  ) + stat_compare_means(paired = F)
+```
+
+### Fisher Exact test {.unnumbered}  
+To assess the association between elevated BMI and the presence of Grade 3–4 hypertriglyceridemia, we performed Fisher’s exact tests using two binary BMI thresholds: 25 (overweight) and 30 (obesity). Patients were classified into two groups based on whether their BMI was below or above each threshold. The association was then evaluated using 2×2 contingency tables and the Fisher’s exact test, which is appropriate for small sample sizes and categorical data.
+
+Results
+The analysis at a BMI threshold of 25 revealed an odds ratio (OR) of 2.736 (95% CI: 0.671–12.712) with a p-value of 0.134, indicating a non-significant association. In contrast, the threshold of BMI = 30 yielded a statistically significant result, with an odds ratio of 7.558 (95% CI: 1.189–86.175) and a p-value of 0.019. This suggests that individuals with a BMI ≥ 30 are significantly more likely to develop Grade 3–4 hypertriglyceridemia compared to those with lower BMI.
+
+
+
+```{r stat_fisher}
+res_fisher_01 <- d04 |> 
+  select(ae_hyperTAG_grade_3_4, bmi) |> 
+  mutate(
+    bmi = if_else(bmi < 25, 0, 1)
+  ) |> 
+  table() |> 
+  fisher.test() |> 
+  tidy() |> 
+  mutate(Treshold = "BMI = 25") |> 
+  relocate( method, Treshold) |> 
+  bind_rows(
+    d04 |> 
+      select(ae_hyperTAG_grade_3_4, bmi) |> 
+      mutate(
+        bmi = if_else(bmi < 30, 0, 1)
+      ) |> 
+      table() |> 
+      fisher.test() |> 
+      tidy() |> 
+      mutate(Treshold = "BMI = 30") |> 
+      relocate(Treshold)
+  )
+
+res_fisher_01 |> 
+  select(-alternative) |> 
+  kable(col.names = c("Method", "Threshold", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
 ## Multiple correspondence analyses  
 
 Multiple Correspondence Analysis (MCA) is a dimensionality reduction technique for categorical data. It helps identify associations among variable categories and visualizes underlying structures by projecting data into a low-dimensional space. In the first figure, the ten most influential variables are shown, with closer items indicating stronger co-occurrence.
@@ -293,7 +386,12 @@ fviz_ellipses(res_mca_02, c("sex", "ae_grade_3_4"),
 ## I. section  
 ### Logistic model  
 
-The table below evaluates the effect of selected independent variables on various adverse outcomes, focusing on tolerability and potential predictors. Among all combinations tested, $discontinued\_due\_to\_ae$ was significantly associated with $monotherapy$ (p = 0.043), and $ae\_hyperTAG\_grade\_3\_4$ was significantly associated with $bmi$ (p = 0.01).
+The logistic regression analyses explored associations between selected independent variables and adverse outcomes related to treatment tolerability.  
+
+- **Monotherapy** was significantly associated with treatment discontinuation due to adverse events (`discontinued_due_to_ae`), with an odds ratio (OR) of 5.33 and a p-value of 0.043.  
+- **BMI** was significantly associated with the occurrence of **Grade 3–4 hypertriglyceridemia** (`ae_hyperTAG_grade_3_4`), showing an OR of 1.23 and a p-value of 0.01.  
+
+No other associations reached statistical significance at the 0.05 threshold. These findings suggest that BMI and treatment regimen may be key factors in predicting specific toxicity outcomes.  
 
 <u>**The model equation:**</u>
 $$
@@ -351,7 +449,7 @@ In the second part, we focused on evaluation of efficacy and its influencing fac
 ### Logistic regression {.tabset .tabset-fade .tabset-pills}  
 
 
-#### Complete {.unnumbered}  
+#### Without *Stage Early* definition {.unnumbered}  
 
 In the table below, we see that $response\_achieved$ was not affected by any selected independent variable.
 
@@ -481,7 +579,7 @@ A single Kaplan–Meier curve summarizes the entire cohort’s survival experien
 
 
 ```{r stat_2_surv_ttnt_overall}
-res_surv_ttnt$surv[[1]]$`KM overall`
+res_surv_ttnt_02$surv[[1]]$`KM overall`
 ```
 
 
@@ -497,27 +595,27 @@ When you divide the cohort into subgroups (e.g., treatment vs. control, biomarke
 
 ###### PS-ECOG {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_ecog}
-res_surv_ttnt$surv[[1]]$`KM stratified`
+res_surv_ttnt_02$surv[[1]]$`KM stratified`
 ```
 
 ###### First Systemic Therapy {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_firstSYSther}
-res_surv_ttnt$surv[[2]]$`KM stratified`
+res_surv_ttnt_02$surv[[2]]$`KM stratified`
 ```
 
 ###### AE Grade 3-4 {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_aeGRADE34}
-res_surv_ttnt$surv[[3]]$`KM stratified`
+res_surv_ttnt_02$surv[[3]]$`KM stratified`
 ```
 
 ###### Monotherapy {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_monotherapy}
-res_surv_ttnt$surv[[4]]$`KM stratified`
+res_surv_ttnt_02$surv[[4]]$`KM stratified`
 ```
 
 ###### Gender {.unnumbered}  
 ```{r stat_2_surv_ttnt_stratified_sex}
-res_surv_ttnt$surv[[5]]$`KM stratified`
+res_surv_ttnt_02$surv[[5]]$`KM stratified`
 ```
 
 ##### Cox Proportional Hazards {.tabset .unnumbered}  
@@ -531,92 +629,97 @@ A standard Cox PH results table typically includes:
 
 ***Cox PH Plot***
 
-To visualize model-based survival differences you can use:
+To visualize model-based survival differences you can use:  
 - **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
 
 
-***Forest Plot for Quartile-Based Analysis***
+**Forest Plot Analysis**  
 
-A forest plot for a continuous covariate divided into quartiles displays:
-- **Point estimates and CIs:** Horizontal lines and markers showing the HR ± 95% CI for each quartile relative to Q1.  
-- **Trend p-value (optional):** Overall test for trend across quartiles, if desired.  
+This forest plot displays the effect estimates from a Cox proportional hazards model:  
+
+- **Point estimates and confidence intervals (CIs):** Each covariate is represented by a square indicating the hazard ratio (HR), with horizontal lines showing the 95% confidence interval.   
+- **Reference categories:** For categorical variables (e.g., `stage_early`), one level is set as the reference.  
+- **Continuous variable (`var_indep`):** Modeled directly without categorization, showing the HR per unit increase.  
+- **Global model metrics:** The bottom of the plot displays the number of events, global p-value from the log-rank test, AIC, and concordance index, reflecting model fit and discrimination.  
+
+This approach allows for a more precise estimation of the continuous variable’s effect without loss of information due to categorization.  
 
 
 ###### PS-ECOG {.unnumbered}  
 ```{r stat_2_surv_cox_table_ecog}
-res_surv_ttnt$surv[[1]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[1]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_cox_plot_ecog}
-res_surv_ttnt$surv[[1]]$`CoxPH plot`
+res_surv_ttnt_02$surv[[1]]$`CoxPH plot`
 ```
 
 
 ###### First Systemic Therapy {.unnumbered}  
 ```{r stat_2_surv_cox_table_firstTH}
-res_surv_ttnt$surv[[2]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[2]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_cox_plot_firstTH}
-res_surv_ttnt$surv[[2]]$`CoxPH plot`
+res_surv_ttnt_02$surv[[2]]$`CoxPH plot`
 ```
 
 
 ###### AE Grade 3-4 {.unnumbered}  
 ```{r stat_2_surv_cox_table_aeGrade}
-res_surv_ttnt$surv[[3]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[3]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_cox_plot_aeGrade}
-res_surv_ttnt$surv[[3]]$`CoxPH plot`
+res_surv_ttnt_02$surv[[3]]$`CoxPH plot`
 ```
 
 
 ###### Monotherapy {.unnumbered}  
 ```{r stat_2_surv_cox_table_monotherapy}
-res_surv_ttnt$surv[[4]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[4]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_cox_plot_monotherapy}
-res_surv_ttnt$surv[[4]]$`CoxPH plot`
+res_surv_ttnt_02$surv[[4]]$`CoxPH plot`
 ```
 
 
 ###### Gender {.unnumbered}  
 ```{r stat_2_surv_ttnt_cox_table_gender}
-res_surv_ttnt$surv[[5]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[5]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_ttnt_cox_plot_gender}
-res_surv_ttnt$surv[[5]]$`CoxPH plot`
+res_surv_ttnt_02$surv[[5]]$`CoxPH plot`
 ```
 
 
 ###### BMI {.unnumbered}  
 ```{r stat_2_surv_cox_table_bmi}
-res_surv_ttnt$surv[[6]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[6]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_cox_plot_bmi}
-res_surv_ttnt$surv[[6]]$`CoxPH plot full`
+res_surv_ttnt_02$surv[[6]]$`CoxPH plot full`
 ```
 
 ```{r stat_2_surv_cox_forest_bmi}
-res_surv_ttnt$surv[[6]]$`CoxPH forest plot full`
+res_surv_ttnt_02$surv[[6]]$`CoxPH forest plot full`
 ```
 
 
 ###### Age {.unnumbered}  
 ```{r stat_2_surv_cox_table_age}
-res_surv_ttnt$surv[[7]]$`CoxPH print table`
+res_surv_ttnt_02$surv[[7]]$`CoxPH print table`
 ```
 
 ```{r stat_2_surv_cox_plot_age}
-res_surv_ttnt$surv[[7]]$`CoxPH plot full`
+res_surv_ttnt_02$surv[[7]]$`CoxPH plot full`
 ```
 
 ```{r stat_2_surv_cox_forest_age}
-res_surv_ttnt$surv[[7]]$`CoxPH forest plot full`
+res_surv_ttnt_02$surv[[7]]$`CoxPH forest plot full`
 ```
 
 
@@ -628,7 +731,7 @@ res_surv_ttnt$surv[[7]]$`CoxPH forest plot full`
 A single Kaplan–Meier curve summarizes the entire cohort’s survival experience:  
 - **Median survival time:** The point at which the estimated survival probability falls to 50%.  
 - **Fixed-time survival rates:** Survival probabilities at landmarks such as 1 year or 5 years.  
-- **Numbers at risk/censoring:** Often displayed below the curve to show how many subjects remain under observation at each interval.
+- **Numbers at risk/censoring:** Often displayed below the curve to show how many subjects remain under observation at each interval.  
 
 
 ```{r stat_2_surv_durTRTeffect_overall}
@@ -676,22 +779,25 @@ res_surv_durTRTeffect_02$surv[[5]]$`KM stratified`
 ***Cox PH Table Output***
 
 A standard Cox PH results table typically includes:  
-- **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.  
+- **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.    
 - **95% Confidence Interval (CI):** Lower and upper bounds for the HR, indicating precision.  
-- **p-value:** Significance of the association between each covariate and the hazard.
+- **p-value:** Significance of the association between each covariate and the hazard.  
 
 ***Cox PH Plot***
 
-To visualize model-based survival differences you can use:
+To visualize model-based survival differences you can use:  
 - **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
-- **Quartile-based plot:** Split a continuous covariate into four quantiles (Q1–Q4) and plot four Kaplan–Meier curves to illustrate dose–response patterns.
 
-***Forest Plot for Quartile-Based Analysis***
+**Forest Plot Analysis**  
 
-A forest plot for a continuous covariate divided into quartiles displays:
-- **Quartile labels (Q1–Q4):** Listed on the vertical axis, with Q1 usually as the reference.  
-- **Point estimates and CIs:** Horizontal lines and markers showing the HR ± 95% CI for each quartile relative to Q1.  
-- **Trend p-value (optional):** Overall test for trend across quartiles, if desired.  
+This forest plot displays the effect estimates from a Cox proportional hazards model:  
+
+- **Point estimates and confidence intervals (CIs):** Each covariate is represented by a square indicating the hazard ratio (HR), with horizontal lines showing the 95% confidence interval.   
+- **Reference categories:** For categorical variables (e.g., `stage_early`), one level is set as the reference.  
+- **Continuous variable (`var_indep`):** Modeled directly without categorization, showing the HR per unit increase.  
+- **Global model metrics:** The bottom of the plot displays the number of events, global p-value from the log-rank test, AIC, and concordance index, reflecting model fit and discrimination.  
+
+This approach allows for a more precise estimation of the continuous variable’s effect without loss of information due to categorization.  
 
 
 ###### PS-ECOG {.unnumbered}  
@@ -829,18 +935,23 @@ res_surv_response_02$surv[[5]]$`KM stratified`
 A standard Cox PH results table typically includes:  
 - **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.  
 - **95% Confidence Interval (CI):** Lower and upper bounds for the HR, indicating precision.  
-- **p-value:** Significance of the association between each covariate and the hazard.
+- **p-value:** Significance of the association between each covariate and the hazard.  
 
 ***Cox PH Plot***
 
-To visualize model-based survival differences you can use:
+To visualize model-based survival differences you can use:  
 - **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
 
-***Forest Plot for Quartile-Based Analysis***
+**Forest Plot Analysis**  
 
-A forest plot for a continuous covariate divided into quartiles displays:
-- **Point estimates and CIs:** Horizontal lines and markers showing the HR ± 95% CI for each quartile relative to Q1.  
-- **Trend p-value (optional):** Overall test for trend across quartiles, if desired.  
+This forest plot displays the effect estimates from a Cox proportional hazards model:  
+
+- **Point estimates and confidence intervals (CIs):** Each covariate is represented by a square indicating the hazard ratio (HR), with horizontal lines showing the 95% confidence interval.   
+- **Reference categories:** For categorical variables (e.g., `stage_early`), one level is set as the reference.  
+- **Continuous variable (`var_indep`):** Modeled directly without categorization, showing the HR per unit increase.  
+- **Global model metrics:** The bottom of the plot displays the number of events, global p-value from the log-rank test, AIC, and concordance index, reflecting model fit and discrimination.  
+
+This approach allows for a more precise estimation of the continuous variable’s effect without loss of information due to categorization.  
 
 
 
@@ -983,7 +1094,11 @@ res_timeTOeffect_02_tab |>
 
 # Conclussion  
 
-In summary, this analysis highlights key factors influencing both the tolerability and efficacy of bexarotene treatment in patients with T-lymphoma. Logistic regression revealed that monotherapy was associated with treatment discontinuation due to adverse events, while BMI influenced the occurrence of high-grade hypertriglyceridemia. Regarding treatment efficacy, early-stage disease was more likely in patients receiving first-line systemic therapy and those on monotherapy. However, no significant predictors were identified for time to response in the linear model. These findings can inform clinical decision-making regarding patient selection and risk stratification during bexarotene therapy.
+This analysis explored both the tolerability and efficacy of bexarotene in patients with T-lymphoma. The results indicate that monotherapy was associated with a higher likelihood of treatment discontinuation due to adverse events, and that BMI significantly influenced the risk of developing severe hypertriglyceridemia. These findings suggest that both treatment strategy and metabolic profile play important roles in managing toxicity.  
+
+Regarding efficacy, early-stage patients were more likely to receive first-line systemic therapy or monotherapy, both of which were associated with treatment response. However, no variable significantly predicted the time to response in linear modeling.
+
+Survival analyses illustrated differences in treatment duration and time to next therapy across several clinical subgroups, though statistical significance was not consistent. Overall, the findings emphasize the importance of personalized risk assessment when initiating bexarotene therapy, particularly in relation to BMI and therapeutic approach.  
 
 # Session info
 
