@@ -1,0 +1,847 @@
+---
+title: "Adverse effect of bexaroten therapy in T-lymphom "
+author: "Jiri Baloun"
+date: "Compiled on: **2025-04-25**  <br> Last updated **`r format(Sys.time(), '%Y-%m-%d')`**"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{=html}
+<style type="text/css">
+.title {
+  text-align: center;
+}
+.author {
+  font-size: 30px;
+  text-align: center;
+  font-style: italic;
+  font-weight: 300;
+}
+.date {
+  font-weight: 300;
+}
+h1, h2, h3, h4, h5 {
+    font-weight: 600;
+    margin-top: 2em;
+}
+body {text-align: justify}
+blockquote {
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 14px;
+    border-left: 5px solid #eee;
+}
+p {
+  text-indent: 2rem;
+}
+table {
+    width:100%;
+}
+.main-container {
+  max-width: 100% !important;
+  margin: auto;
+}
+img{
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+}
+.boxBorder {
+     border: 2px solid #990066;
+     padding: 10px;
+     outline: #990066 solid 5px;
+     outline-offset: 5px;
+   }
+</style>
+```
+```{r setup, fig.align = 'center', include=FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE,
+    knitr.kable.NA = ''  # if it does not work, use this  options(knitr.kable.NA = '')
+)
+options(knitr.kable.NA = '')
+
+# Functions
+## loading  
+pacman::p_load(update = FALSE,
+               tidyverse, purrr, furrr, easystats, rio, janitor, ggthemes, car,
+               gtsummary, skimr, sjPlot, flextable, ggpubr, rstatix, tidymodels,
+               psych, paletteer, ComplexHeatmap, future, multidplyr, corrr, 
+               factoextra, lmerTest, ggforce, lazyWeave, FactoMineR, sjPlot,
+               kableExtra, survival, survminer, ggsurvfit, ggfortify, 
+               adjustedCurves, ggbeeswarm
+  ) 
+## function specification ----
+conflicted::conflicts_prefer(
+  janitor::remove_empty,
+  dplyr::filter,
+  dplyr::mutate,
+  dplyr::rename,
+  dplyr::summarize,
+  dplyr::summarise,
+  dplyr::select,
+  purrr::map,
+  tidyr::extract,
+  stats::chisq.test,
+  base::intersect,
+  base::setdiff,
+  dplyr::last,
+  dplyr::first, 
+  dplyr::between,
+  corrr::correlate,
+  purrr::set_names,
+  dplyr::desc,
+  rstatix::chisq_test,
+  stats::fisher.test,
+  kableExtra::footnote
+)
+
+## Manual 
+# skimr
+my_skim <- skimr::skim_with(numeric = sfl(median = ~ median(., na.rm = TRUE),
+                                          mad = ~ mad(., na.rm = TRUE)), 
+                            append = TRUE)
+
+# Load objects
+load("markD_03.RData")
+
+# Load cores
+no_cores <- parallelly::availableCores() -1
+
+# Load functions
+list.files("F:/Analysis/github/project-ettler01/scripts/functions/", pattern="*.*", full.names=TRUE) %>% str_subset( "OBJ", negate = TRUE) %>%  map(~source(.))
+
+# Parameter selection ----
+param_sel <- c("initials", "age", "sex", "bmi", "ae_grade_3_4",
+               "ae_hyperTAG_grade_3_4","discontinued_due_to_ae", "ae_liver",
+               "ae_hemato", "ps_ecog", "stage_early", "first_syst_th",
+               "thyroid_disease_before", "monotherapy", "response_achieved",
+               "dyslipidemia_before")
+
+param_sel_2 <- c("initials", "age", "sex", "bmi", "ps_ecog", "stage_early",
+                 "first_syst_th", "response_achieved", "thyroid_disease_before",
+                 "dyslipidemia_before", "monotherapy", "ttnt", "ttnt_achieved",
+                 "response_time_to", "response_duration",	"progression",
+                 "treatment_duration", "discontinuation_reason", "ae_grade_3_4",
+                 "ae_liver", "ae_hemato", "discontinued_due_to_ae",
+                 "ae_hyperTAG_grade_3_4", "ae_hyperTAG_any"
+                 
+)
+
+variab_dep_01 <- c("discontinued_due_to_ae", "ae_hyperTAG_any", 
+                    "ae_hyperTAG_grade_3_4", "ae_liver",	"ae_hemato")
+variab_indep_01 <- c("age", "sex", "bmi", "ps_ecog", "stage_early", "first_syst_th",
+                     "response_achieved", "dyslipidemia_before", 
+                     "thyroid_disease_before", "monotherapy"  
+)
+
+variab_dep_02a <- c("response_achieved" 
+)
+variab_dep_02b <- c("treatment_duration", "discontinuation_reason",
+                    "ttnt", "ttnt_achieved"
+)
+variab_dep_02c <- c("response_time_to",                 # only non-zero patients
+                    "response_duration", "progression")
+variab_indep_02 <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "ae_grade_3_4",
+                     "monotherapy")
+# Object processing  
+data_surv <- d04 |> 
+    filter(!is.na(discontinuation_reason)) |> 
+    select(contains("ttnt"),
+           treatment_duration, discontinuation_reason,
+           response_duration, progression,
+           stage_early) |> 
+    mutate(stage_early = factor(stage_early),
+           discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1)) 
+```
+
+
+# Questions  
+
+
+
+# Notes  
+* The variable $ae\_hyperTAG\_any$ is perfectly predicted by $thyroid\_disease\_before$. In other words, the logistic regression model fits this pair of variables too perfectly — producing predicted probabilities of 0 or 1 with no uncertainty.
+
+# Abbrativations
+
+| Parameter                          | Description                                                                                           | Column Name               |
+|------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------------|
+| Initials                           | XX = surname, forename                                                                                | initials                  |
+| Center                             | CZ/DE                                                                                                 | center                    |
+| Age                                | at the time of initiation of Bexaroten (years)                                                       | age                       |
+| Sex                                | M/F                                                                                                   | sex                       |
+| BMI                                | at the time of initiation of Bexarotene                                                               | bmi                       |
+| PS ECOG                            | at the time of initiation of Bexarotene                                                               | ps_ecog                   |
+| CTCL type                          | according to WHO-EORTC 2018                                                                           | ctcl_type                 |
+| Stage                              | at the time of initiation of Bexarotene                                                               | stage                     |
+| Early Stage?                       | 1= yes   0= no                                                                                         | stage_early               |
+| T                                  | at the time of initiation of Bexarotene                                                               | t_stage                   |
+| N                                  | at the time of initiation of Bexarotene                                                               | n_stage                   |
+| M                                  | at the time of initiation of Bexarotene                                                               | m_stage                   |
+| B                                  | at the time of initiation of Bexarotene                                                               | b_stage                   |
+| Time since Dg.                     | at the time of initiation of Bexarotene (months)                                                      | months_since_diagnosis    |
+| Time since 1. clin. manifestation  | Before the initiation of Bexarotene (months)                                                          | months_since_first_symptom|
+| Radiologic Examinations           | Dg. Procedures, such as CT, PET, USG.. Any time during the course of disease (0=only clin. Exam.)     | radiologic_exams          |
+| SDT before                         | Skin directed therapy preceding the initiation of bexarotene, incl. Radiotherapy                      | sdt_before                |
+| SysTh before                       | Systemic treatments preceding the initiation of bexarotene (incl. + TSEI with > 50% BSA) + TSEI >50% BSA | systh_before           |
+| First syst, Therapy?               | 1= yes   0= no                                                                                         | first_syst_th             |
+| Initial dose                       | Daily Dose (mg/m²)                                                                                    | initial_dose_mg_m2        |
+| Final dose                         | The highest tolerable daily dose (mg/m²)                                                              | final_dose_mg_m2          |
+| Initial SysTh                      | Other antineoplastic Systemic therapies at the time of initiation of Bexarotene                       | initial_systh             |
+| SysTh during the Treatment         | Other antineoplastic Systemic therapies during the treatment with bexarotene (duration in months)     | systh_during_treatment    |
+| SDT during the Treatment           | Skin directed Therapy during the treatment with bexarotene                                            | sdt_during_treatment      |
+| Best treatment response            | SD, PR, CR                                                                                            | response_best             |
+| Response?                          | 1=PR, CR,  0= SD,PD                                                                                   | response_achieved         |
+| MonoTh?                            | was the best treatment response achieved during the monotherapy (1=yes, 0=no)                         | monotherapy               |
+| Time to Response                   | time to achieve the best treatment response (0=only SD achieved)                                      | response_time_to          |
+| Duration of response               | until progression or last visit (months)                                                              | response_duration         |
+| Progression?                       | progression during the treatment (1=yes, 0=no)                                                        | progression               |
+| Duration of treatment              | (months)                                                                                              | treatment_duration        |
+| Reason to discontinuation          | 0=treatment continues                                                                                 | discontinuation_reason    |
+| Discontinued because of AE?        | 1=yes, 0=no                                                                                            | discontinued_due_to_ae    |
+| TTNT                                | TTNT (x = TTNT not achieved )                                                                         | ttnt                      |
+| TTNT achieved?                     | 1=yes, 0=no (no "next treatment" given)                                                               | ttnt_achieved             |
+| Comorbidities                      |                                                                                                       | comorbidities             |
+| Dyslipidemia before bexaroten?     | 1=yes, 0=no                                                                                            | dyslipidemia_before       |
+| Thyroid disease before bexarotene? | 1=yes, 0=no                                                                                            | thyroid_disease_before    |
+| Adverse events (treatment)         | (all grades)                                                                                           | ae_complete_all           |
+| AE Grade 3 / 4 (event. 5)          |                                                                                                       | ae_complete_grade_3_4     |
+| AE Grade 3/4                       | 1=yes, 0=no                                                                                            | ae_grade_3_4              |
+| AE hyperTAG any Grade?             | 1=yes, 0=no                                                                                            | ae_hyperTAG_any           |
+| AE hyperTAG Grade 3/4?             | 1=yes, 0=no                                                                                            | ae_hyperTAG_grade_3_4     |
+| AE Liver Tests elevation (any grade)| 1=yes, 0=no                                                                                           | ae_liver                  |
+| Haematologic AE (any grade)        | 1=yes, 0=no                                                                                            | ae_hemato                 |
+
+
+# Exporatory Data Analyses (EDA) {.tabset .tabset-fade .tabset-pills}  
+
+Exploratory Data Analysis (EDA) involves visualizing and summarizing data to uncover patterns, anomalies, and relationships, assess data quality, and guide feature selection. By identifying outliers, missing values, and distributions, EDA informs model choice, suggests transformations, and refines hypotheses, ensuring more reliable and insightful downstream analysis.
+
+## Overview {.unnumbered}  
+
+In the table below, a basic overview of the analyzed data is presented. Seven variables contain one missing value each. Additionally, $discontinued_due_to_ae$ and $response_duration$ contain 12 and two missing values, respectively. 
+
+
+```{r eda_skimr, results="asis"}
+d04 |> 
+  select(-initials) |>  
+  mutate(across(
+    .cols = -c(bmi, age), 
+    .fns = as.factor
+  )) |> 
+  my_skim()
+
+```
+
+
+## Proportional Bar plot {.unnumbered}
+
+A proportional bar plot illustrates the relative size of each category by showing values as proportions. The figure below reveals notable imbalances across most variables. In several cases, such as $ae\_hyperTAG\_any$, $ae\_hemato$, and $thyroid\_disease\_before$, a strong disproportion is evident. Such imbalance can compromise statistical analyses by violating assumptions like equal variance or sample size, thereby reducing the ability to detect patterns in smaller subgroups.
+
+```{r eda_barplot}
+d04 |> 
+  select(-initials, -age, -bmi, -contains("duration"), -ttnt,
+         -contains("time_to")) |> 
+  select(where(is.numeric)) |> 
+  mutate(across(everything(),as.factor)) |> 
+  pivot_longer(cols = everything()) |> 
+  na.omit() |> 
+  ggplot(aes(x = name, fill = as.factor(value))) +
+  geom_bar(position = "fill") +  # Proportions
+  labs(y = "Proportion", fill = "Outcome") +
+  theme_sjplot2()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  paletteer::scale_fill_paletteer_d("waRhol::marilyn_orange_62") +
+  NULL
+```
+
+
+# Statistics  
+## BMI & hypertriglyceridemia  {.tabset .tabset-fade .tabset-pills}   
+### Box Plot - BMI {.unnumbered}  
+
+This figure illustrates the distribution of Body Mass Index (BMI) among patients categorized by the presence or absence of Grade 3–4 Hypertriglyceridemia. The x-axis represents two groups: 0 for patients without Grade 3–4 hypertriglyceridemia (red dots) and 1 for those with it (blue dots). Each dot corresponds to an individual patient's BMI value.  
+Central tendency and variability within each group are summarized using horizontal black bars, which indicate the median and the Median Absolute Deviation (MAD) intervals. This method provides a robust estimate of spread, especially useful in datasets that may contain outliers or are not normally distributed.  
+A Wilcoxon rank-sum test was used to assess the statistical significance of the difference in BMI between the two groups. The resulting p-value of 0.0069 suggests a statistically significant difference in BMI distribution between patients with and without Grade 3–4 hypertriglyceridemia.  
+Overall, the figure indicates that BMI is significantly associated with the occurrence of severe hypertriglyceridemia. Patients in the hypertriglyceridemia group (Group 1) tend to show greater variability in BMI and possibly higher values, which may contribute to the observed statistical difference.  
+
+```{r eda_boxplot_bmi}
+d04 |> 
+  ggplot(aes(x = factor(ae_hyperTAG_grade_3_4), 
+             y = bmi, 
+             color = factor(ae_hyperTAG_grade_3_4))) +
+  geom_beeswarm(cex = 3.5, size = 3.5) +
+  scale_color_brewer(
+    palette = "Set1", 
+    name = "Grade 3–4 Hypertriglyceridemia"
+  ) +
+  stat_summary(fun.data = ggpubr::median_mad, 
+               geom = "errorbar", 
+               color = "black", 
+               width = 0.2, 
+               size = 1) +
+  stat_summary(fun = median, 
+               geom = "crossbar", 
+               color = "black", 
+               size = 0.8, 
+               width = 0.3) +
+  labs(
+    y = "Body Mass Index (BMI)",
+    title = "Grade 3–4 Hypertriglyceridemia",
+    caption = "The error bars represent Median Absolute Deviations (MAD) intervals with the median."
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(face = "bold", size = 18),
+    axis.text = element_text(size = 14, face = "bold"),
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold")
+  ) + stat_compare_means(paired = F)
+```
+
+### Fisher Exact test {.unnumbered}  
+To assess the association between elevated BMI and the presence of Grade 3–4 hypertriglyceridemia, we performed Fisher’s exact tests using two binary BMI thresholds: 25 (overweight) and 30 (obesity). Patients were classified into two groups based on whether their BMI was below or above each threshold. The association was then evaluated using 2×2 contingency tables and the Fisher’s exact test, which is appropriate for small sample sizes and categorical data.
+
+
+The analysis at a BMI threshold of 25 revealed an odds ratio (OR) of 2.736 (95% CI: 0.671–12.712) with a p-value of 0.134, indicating a non-significant association. In contrast, the threshold of BMI = 30 yielded a statistically significant result, with an odds ratio of 7.558 (95% CI: 1.189–86.175) and a p-value of 0.019. This suggests that individuals with a BMI ≥ 30 are significantly more likely to develop Grade 3–4 hypertriglyceridemia compared to those with lower BMI.
+
+
+
+```{r stat_fisher}
+res_fisher_01 <- d04 |> 
+  select(ae_hyperTAG_grade_3_4, bmi) |> 
+  mutate(
+    bmi = if_else(bmi < 25, 0, 1)
+  ) |> 
+  table() |> 
+  fisher.test() |> 
+  tidy() |> 
+  mutate(Treshold = "BMI = 25") |> 
+  relocate( method, Treshold) |> 
+  bind_rows(
+    d04 |> 
+      select(ae_hyperTAG_grade_3_4, bmi) |> 
+      mutate(
+        bmi = if_else(bmi < 30, 0, 1)
+      ) |> 
+      table() |> 
+      fisher.test() |> 
+      tidy() |> 
+      mutate(Treshold = "BMI = 30") |> 
+      relocate(Treshold)
+  )
+
+res_fisher_01 |> 
+  select(-alternative) |> 
+  kable(col.names = c("Method", "Threshold", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+## Multiple correspondence analyses  
+
+Multiple Correspondence Analysis (MCA) is a dimensionality reduction technique for categorical data. It helps identify associations among variable categories and visualizes underlying structures by projecting data into a low-dimensional space. In the first figure, the ten most influential variables are shown, with closer items indicating stronger co-occurrence.
+
+The second figure groups individuals based on variables such as $sex$ and $ae\_grade\_3\_4$, and overlays concentration ellipses. These ellipses highlight the degree of overlap and separation between groups. For example, a clear separation is observed for $ae\_grade\_3\_4$, while $sex$ does not show such distinction.
+
+```{r stat_mca, out.width="50%"}
+res_mca_02 <- d04 |> select(-initials, -age, -bmi) |> na.omit() |> 
+  mutate(across(everything(),as.factor)) |> 
+  MCA(graph = FALSE)
+fviz_mca_var(res_mca_02, 
+             select.var = list(contrib = 10),  # only top ten variables
+             repel = TRUE, ggtheme = theme_minimal(),
+             col.var = "contrib",
+             # choice = "mca.cor",
+             gradient.cols = c("#bdbdbd", "#ffeda0", "#FC4E07"))
+
+fviz_ellipses(res_mca_02, c("sex", "ae_grade_3_4"),
+              geom = "point")
+```
+
+
+## I. section  
+### Logistic model  
+
+The logistic regression analyses explored associations between selected independent variables and adverse outcomes related to treatment tolerability.  
+
+- **Monotherapy** was significantly associated with treatment discontinuation due to adverse events (`discontinued_due_to_ae`), with an odds ratio (OR) of 5.33 and a p-value of 0.043.  
+- **BMI** was significantly associated with the occurrence of **Grade 3–4 hypertriglyceridemia** (`ae_hyperTAG_grade_3_4`), showing an OR of 1.23 and a p-value of 0.01.  
+
+No other associations reached statistical significance at the 0.05 threshold. These findings suggest that BMI and treatment regimen may be key factors in predicting specific toxicity outcomes.  
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Dependent variable} &\sim Bernoulli\left(\operatorname{prob}_{\operatorname{Dependent variable} = \operatorname{1}}= \hat{P}\right) \\
+ \log\left[ \frac { \hat{P} }{ 1 - \hat{P} } \right] 
+ &= \alpha + \beta_{1}(\operatorname{Independent variable})
+\end{aligned}
+$$
+
+
+```{r stat_1_logistic}
+res_logist_02 <- d04 |> 
+  select(all_of(c(variab_indep_01, variab_dep_01))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_01),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_01),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
+
+res_logist_02_tab <- res_logist_02 |> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_02_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+
+## II. section  
+
+In the second part, we focused on evaluation of efficacy and its influencing factors.
+
+### Fisher exact test  
+
+For a sample of only 45 observations, Fisher’s exact test is preferable because it computes an exact p-value for your 2×2 table without relying on large-sample approximations or minimum cell counts, yielding reliable evidence against independence even when frequencies are low. It also directly provides an exact odds ratio with a confidence interval, whereas logistic regression in such a small dataset may suffer from unstable coefficient estimates, convergence issues or separation and depends on asymptotic assumptions. 
+
+```{r fisher_resp_stage}
+res_fisher_02 <- d04 |> 
+  select(response_achieved, stage_early) |> 
+  table() |> 
+  fisher.test() |> 
+  tidy() |> 
+  relocate( method) 
+
+res_fisher_02 |> 
+  select(-alternative) |> 
+  kable(col.names = c("Method",  "Odds Ratio", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) 
+```
+
+
+### Logistic regression {.tabset .tabset-fade .tabset-pills}  
+#### Without *Stage Early* definition {.unnumbered}  
+
+In the table below, we see that $response\_achieved$ was not affected by any selected independent variable.
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Dependent variable} &\sim Bernoulli\left(\operatorname{prob}_{\operatorname{Dependent variable} = \operatorname{1}}= \hat{P}\right) \\
+ \log\left[ \frac { \hat{P} }{ 1 - \hat{P} } \right] 
+ &= \alpha + \beta_{1}(\operatorname{Independent variable})
+\end{aligned}
+$$
+
+```{r stat_2_logistic}
+res_logist_03 <- d04 |> 
+  select(all_of(c(variab_indep_02, variab_dep_02a))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_02a),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_02),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)))
+
+res_logist_03_tab <- res_logist_03 |> 
+  unnest(tidier) |> 
+  filter(term == "indep_value") |> 
+  select(-data, -mod, -term) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_03_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top")
+```
+
+
+
+#### With *Stage Early* definition {.unnumbered}  
+
+In the table below, we see that $response\_achieved$ was not affected by any selected independent variable ever after the adjustation for $stage\_early$.  
+I also tried the interaction between $response\_achieved$ and $stage\_early$ without success.
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Dependent variable} &\sim Bernoulli\left(\operatorname{prob}_{\operatorname{Dependent variable} = \operatorname{1}}= \hat{P}\right) \\
+ \log\left[ \frac { \hat{P} }{ 1 - \hat{P} } \right] 
+ &= \alpha + \beta_{1}(\operatorname{Independent variable}) + \beta_{2}(\operatorname{Stage Early})
+\end{aligned}
+$$
+
+```{r stat_2_logistic_stageEarly}
+res_logist_04 <- d04 |> 
+  select(stage_early, all_of(c(variab_indep_02, variab_dep_02a))) |> 
+  mutate(sex = if_else(sex == "M", 1, 0)) |> 
+  pivot_longer(
+    cols = all_of(variab_dep_02a),
+    names_to = "dep_name",
+    values_to = "dep_value"
+  ) |> 
+  pivot_longer(cols = all_of(variab_indep_02),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(dep_name,indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~glm(dep_value ~ indep_value + stage_early, 
+                              data = .x, family = "binomial")),
+         tidier = map(mod, ~tidy(.x, conf.int = T, exp = T)),
+         mod2 = map(data, ~glm(dep_value ~ indep_value * stage_early, 
+                              data = .x, family = "binomial")),
+         tidier2 = map(mod2, ~tidy(.x, conf.int = T, exp = T))
+         )
+
+res_logist_04_tab_a <- res_logist_04 |> 
+  unnest(tidier) |> 
+  filter(!str_detect(term, "Intercept")) |> 
+  select(-data, -mod, -mod2, -tidier2) |> 
+  mutate(across(where(is.numeric), ~round(.x,3)))
+
+res_logist_04_tab_a |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Dependent", "Adjusted for", "Independent", "Odds Ratio", "p-value",
+                      "5% CI", "95% CI")) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1:2, valign = "top")
+```
+
+
+
+
+### Survival analyses {.tabset .tabset-fade .tabset-pills}  
+
+A Cox proportional hazards (PH) model assesses the effect of one or more covariates on the hazard (instantaneous event rate) over time, without requiring specification of the baseline hazard function. It yields hazard ratios (HRs) that represent the relative risk associated with covariates, assuming the hazard functions are proportional between groups.
+
+
+***Cox PH Table Output***
+
+A standard Cox PH results table typically includes:  
+- **Hazard Ratio (HR):** The estimated relative risk per unit change (or category) in each covariate.  
+- **95% Confidence Interval (CI):** Lower and upper bounds for the HR, indicating precision.  
+- **p-value:** Significance of the association between each covariate and the hazard.
+
+***Cox PH Plot***
+
+To visualize model-based survival differences you can use:
+- **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
+
+
+#### Time to next treatment {.unnumbered}  
+
+The time-to-next-treatment curves reveal that patients with early-stage disease went much longer before requiring another therapy—median around 45 months versus roughly 8 months in the comparison group—and the Cox model indicates a 74 % lower hazard of starting subsequent treatment in the early-stage cohort (HR 0.26, 95 % CI 0.08–0.80; p = 0.018).
+
+
+```{r stat_2_surv_cox_ttnt}
+res_cox_ttnt <- coxph(Surv(ttnt , ttnt_achieved ) ~ stage_early, 
+                   data = data_surv,
+                   x = TRUE)
+res_cox_ttnt |> 
+   tbl_regression(exp = TRUE,
+                  show_single_row = everything())
+
+prefig_cox_res_cox_ttnt <- adjustedsurv(data=  data_surv, 
+                                variable="stage_early", ev_time="ttnt",
+                                event="ttnt_achieved", method="direct",
+                                outcome_model=res_cox_ttnt, conf_int=TRUE)
+  
+plot(prefig_cox_res_cox_ttnt, conf_int=TRUE, risk_table=TRUE,
+                     title = "Cox Proportional Hazards",
+                     subtitle = "Stratified By Stage Early",
+                     risk_table_stratify=TRUE, method="direct",
+                     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
+                     risk_table_theme=ggplot2::theme_classic(),
+                     gg_theme=ggplot2::theme_minimal(),
+                     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC'))
+```
+
+
+
+#### Duration treatment  {.unnumbered}  
+
+The adjusted time-to-treatment-discontinuation curves for early-stage versus other patients almost completely overlap, with median durations of about 20 months in both groups, and Cox regression shows no significant difference in the hazard of stopping treatment (HR 1.06, 95 % CI 0.45–2.48; p = 0.9).  
+
+
+```{r stat_2_surv_cox_duration}
+res_cox_dur <- coxph(Surv(treatment_duration, discontinuation_reason) ~ stage_early, 
+                      data = data_surv,
+                      x = TRUE)
+res_cox_dur |> 
+  tbl_regression(exp = TRUE,
+                 show_single_row = everything())
+
+prefig_cox_res_cox_dur <- adjustedsurv(data=  data_surv, 
+                                        variable="stage_early", ev_time="treatment_duration",
+                                        event="discontinuation_reason", method="direct",
+                                        outcome_model=res_cox_dur, conf_int=TRUE)
+
+plot(prefig_cox_res_cox_dur, conf_int=TRUE, risk_table=TRUE,
+     title = "Cox Proportional Hazards",
+     subtitle = "Stratified By Stage Early",
+     risk_table_stratify=TRUE, method="direct",
+     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
+     risk_table_theme=ggplot2::theme_classic(),
+     gg_theme=ggplot2::theme_minimal(),
+     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC')) 
+```
+
+#### Disease Progression & Response Time  {.unnumbered}  
+
+The adjusted duration-of-response curves for early-stage versus other patients almost completely overlap, with median DOR of about 17–18 months in both groups, and Cox regression shows no significant difference in the hazard of progression (HR 0.46, 95 % CI 0.13–1.59; p = 0.2).  
+
+
+```{r stat_2_surv_cox_prog}
+res_cox_resp <- coxph(Surv(response_duration, progression) ~ stage_early, 
+                      data = data_surv,
+                      x = TRUE)
+res_cox_resp |> 
+  tbl_regression(exp = TRUE,
+                 show_single_row = everything())
+
+prefig_cox_res_cox_resp <- adjustedsurv(data=  data_surv, 
+                                        variable="stage_early", ev_time="response_duration",
+                                        event="progression", method="direct",
+                                        outcome_model=res_cox_resp, conf_int=TRUE)
+
+plot(prefig_cox_res_cox_resp, conf_int=TRUE, risk_table=TRUE,
+     title = "Cox Proportional Hazards",
+     subtitle = "Stratified By Stage Early",
+     risk_table_stratify=TRUE, method="direct",
+     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
+     risk_table_theme=ggplot2::theme_classic(),
+     gg_theme=ggplot2::theme_minimal(),
+     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC'))
+```
+
+### Linear regression  
+#### Time to response  {.tabset .tabset-fade .tabset-pills}
+
+Linear regression was identified as the most suitable model for the non-zero subset of the *Time to response* variable, based on residual analysis. The table below shows that none of the tested independent variables had a statistically significant association with $response\_time\_to$.
+
+##### Only *Stage Early* {.unnumbered}  
+ <u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Time to response} &= \alpha + \beta_{1}(\operatorname{Stage Early}) + \epsilon\\
+\varepsilon_i &\sim \mathcal{N}(0,\,\sigma^2)
+\end{aligned}
+$$
+ 
+```{r lm_resp_time}
+lm_spec <- linear_reg() %>%
+  set_mode("regression") %>%
+  set_engine("lm")
+
+lm_fit <- lm_spec %>%
+  fit(response_time_to ~ factor(stage_early), data = d04)
+
+lm_fit |> tbl_regression(show_single_row = everything())
+```
+ 
+ 
+ We fitted a linear model (estimated using OLS) to predict response_time_to with stage_early
+(formula: response_time_to ~ factor(stage_early)). The model explains a statistically not
+significant and very weak proportion of variance (R2 = 5.44e-03, F(1, 41) = 0.22, p = 0.638, adj. R2
+= -0.02). The model's intercept, corresponding to stage_early = 0, is at 2.58 (95% CI [1.58, 3.59],
+t(41) = 5.20, p < .001). Within this model:
+
+  - The effect of stage early [1] is statistically non-significant and negative (beta = -0.58, 95% CI
+[-3.07, 1.90], t(41) = -0.47, p = 0.638; Std. beta = -0.20, 95% CI [-1.04, 0.64])
+
+Standardized parameters were obtained by fitting the model on a standardized version of the dataset.
+95% Confidence Intervals (CIs) and p-values were computed using a Wald t-distribution approximation.  
+ 
+ 
+ 
+##### *Stage Early* adjusted for ... {.unnumbered}  
+
+
+<u>**The model equation:**</u>
+$$
+\begin{aligned}
+\operatorname{Time to response} &= \alpha + \beta_{1}(\operatorname{independent variable}) + \beta_{2}(\operatorname{Stage Early}) + \epsilon\\
+\varepsilon_i &\sim \mathcal{N}(0,\,\sigma^2)
+\end{aligned}
+$$
+
+
+```{r}
+res_timeTOeffect_02 <- d04 |> 
+  select(response_time_to, stage_early, all_of(variab_indep_02)) |> 
+  filter(response_time_to > 0) |> 
+  mutate(sex = if_else(sex == "M",1,0)) |> 
+  pivot_longer(cols = -c("response_time_to", "stage_early"),
+               names_to = "indep_name",
+               values_to = "indep_value") |> 
+  group_by(indep_name) |> 
+  nest() |> 
+  mutate(mod = map(data, ~lm(data = .x, response_time_to ~ indep_value + stage_early)),
+         tidier = map(mod, ~tidy(.x, conf.int = T)),
+         qqplot = map2(mod, indep_name, ~ggqqplot(na.omit(resid(.x)) |> as_tibble(),
+                                                  x = "value", title = .y)
+                       )) 
+
+
+res_timeTOeffect_02_tab <- res_timeTOeffect_02|> 
+  unnest(tidier) |> 
+  filter(!str_detect(term, "(Intercept)")) |> 
+  select(-(data:mod), -qqplot)
+
+
+res_timeTOeffect_02_tab |> 
+  select(-std.error, - statistic) |> 
+  kable(col.names = c("Independent", "Term", "Estimate", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) %>%
+  collapse_rows(columns = 1, valign = "top") |> 
+  footnote(general_title = "Note.", 
+           footnote_as_chunk = TRUE,
+           threeparttable = TRUE,
+           general = "Data without zero values.")
+
+```
+
+
+
+# Conclussion  
+
+### Summary
+
+This analysis explored both the tolerability and efficacy of bexarotene in patients with T-lymphoma, highlighting that monotherapy significantly increased the likelihood of treatment discontinuation due to adverse events ([Logistic regression analysis](#logistic-model)) :contentReference[oaicite:0]{index=0} and that higher BMI was strongly associated with severe Grade 3–4 hypertriglyceridemia ([BMI & hypertriglyceridemia](#box-plot---bmi)) :contentReference[oaicite:1]{index=1}. Early-stage patients were more likely to receive first-line systemic therapy or monotherapy, which correlated with objective response, although linear modeling found no variable that significantly predicted time to best response :contentReference[oaicite:2]{index=2}. In survival analyses, early-stage patients went much longer before requiring another treatment ([Time to next treatment](#time-to-next-treatment)) :contentReference[oaicite:3]{index=3}, while duration-of-response curves overlapped between groups ([Duration of response](#disease-progression-response-time)) :contentReference[oaicite:4]{index=4} and time-to-treatment-discontinuation was nearly identical ([Treatment discontinuation analysis](#duration-treatment)) :contentReference[oaicite:5]{index=5}. Overall, these findings underscore the need for personalized risk assessment—particularly considering metabolic profile and therapeutic approach—when initiating bexarotene therapy. :contentReference[oaicite:6]{index=6}
+
+
+# Session info
+
+<details>
+
+<summary>Platform</summary>
+
+```{r session_info_1}
+df_session_platform <- devtools::session_info()$platform %>% 
+  unlist(.) %>% 
+  as.data.frame(.) %>% 
+  rownames_to_column(.)
+
+colnames(df_session_platform) <- c("Setting", "Value")
+
+kable(
+  df_session_platform, 
+  booktabs = T, 
+  align = "l",
+  caption = "(ref:Reproducibility-SessionInfo-R-environment-title)", # complete caption for main document
+  caption.short = " " # "(ref:Reproducibility-SessionInfo-R-environment-caption)" # short caption for LoT
+) %>% 
+  kable_styling(full_width = F,
+                latex_options = c(
+                  "hold_position" # stop table floating
+                ),
+                bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) 
+
+```
+
+</details>
+
+<details>
+
+<summary>Used packages</summary>
+
+```{r session_info_2, results = 'asis'}
+subset(data.frame(sessioninfo::package_info()), attached==TRUE, c(package, loadedversion, date))
+```
+
+</details>
+
+<br> <br> <br> <br> <br> <br>
+
+::: {.tocify-extend-page data-unique="tocify-extend-page" style="height: 0;"}
+:::
+

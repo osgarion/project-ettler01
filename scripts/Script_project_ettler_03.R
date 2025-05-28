@@ -233,7 +233,40 @@ res_fisher_01 |>
 
 
 ## II. section ----
+### Fisher exact test
+res_fisher_02 <- d04 |> 
+  select(response_achieved, stage_early) |> 
+  table() |> 
+  fisher.test() |> 
+  tidy() |> 
+  relocate( method) 
+
+res_fisher_02 |> 
+  select(-alternative) |> 
+  kable(col.names = c("Method",  "Odds Ratio", "p-value",
+                      "5% CI", "95% CI"),
+        digits = 3) |> 
+  kable_styling(
+    full_width = F,
+    latex_options = c(
+      "hold_position" # stop table floating
+    ),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) 
+
 ### Logistic regression ----
+#### Only with `Stage Early`
+# for this purpose, the logicstic regression is not ideal
+glm_spec <- logistic_reg() %>%
+  set_mode("classification") %>%
+  set_engine("glm")
+
+glm_fit <- glm_spec %>%
+  fit(factor(response_achieved) ~ factor(stage_early), data = d04)
+
+glm_fit |> tbl_regression(exp = TRUE,
+                          show_single_row = everything())
+
 #### Without `Stage Early` ----
 ##### Model ----
 res_logist_03 <- d04 |> 
@@ -452,6 +485,77 @@ res_surv_response <- d04 |>
     ) |> 
   mutate(surv = coalesce(surv_cat,surv_cont)) |> 
   select(-surv_cat,-surv_cont)
+
+
+#### Only `Stage early` ----
+## TTNT
+res_cox_ttnt <- coxph(Surv(ttnt , ttnt_achieved ) ~ stage_early, 
+                      data = data_surv,
+                      x = TRUE)
+res_cox_ttnt |> 
+  tbl_regression(exp = TRUE,
+                 show_single_row = everything())
+
+prefig_cox_res_cox_ttnt <- adjustedsurv(data=  data_surv, 
+                                        variable="stage_early", ev_time="ttnt",
+                                        event="ttnt_achieved", method="direct",
+                                        outcome_model=res_cox_ttnt, conf_int=TRUE)
+
+plot(prefig_cox_res_cox_ttnt, conf_int=TRUE, risk_table=TRUE,
+     title = "Cox Proportional Hazards",
+     subtitle = "Stratified By Stage Early",
+     risk_table_stratify=TRUE, method="direct",
+     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
+     risk_table_theme=ggplot2::theme_classic(),
+     gg_theme=ggplot2::theme_minimal(),
+     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC')) 
+
+## Duration  
+
+res_cox_dur <- coxph(Surv(treatment_duration, discontinuation_reason) ~ stage_early, 
+                     data = data_surv,
+                     x = TRUE)
+res_cox_dur |> 
+  tbl_regression(exp = TRUE,
+                 show_single_row = everything())
+
+prefig_cox_res_cox_dur <- adjustedsurv(data=  data_surv, 
+                                       variable="stage_early", ev_time="treatment_duration",
+                                       event="discontinuation_reason", method="direct",
+                                       outcome_model=res_cox_dur, conf_int=TRUE)
+
+plot(prefig_cox_res_cox_dur, conf_int=TRUE, risk_table=TRUE,
+     title = "Cox Proportional Hazards",
+     subtitle = "Stratified By Stage Early",
+     risk_table_stratify=TRUE, method="direct",
+     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
+     risk_table_theme=ggplot2::theme_classic(),
+     gg_theme=ggplot2::theme_minimal(),
+     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC')) 
+
+## Disease Progression & Response Time 
+res_cox_resp <- coxph(Surv(response_duration, progression) ~ stage_early, 
+                      data = data_surv,
+                      x = TRUE)
+res_cox_resp |> 
+  tbl_regression(exp = TRUE,
+                 show_single_row = everything())
+
+prefig_cox_res_cox_resp <- adjustedsurv(data=  data_surv, 
+                                        variable="stage_early", ev_time="response_duration",
+                                        event="progression", method="direct",
+                                        outcome_model=res_cox_resp, conf_int=TRUE)
+
+plot(prefig_cox_res_cox_resp, conf_int=TRUE, risk_table=TRUE,
+     title = "Cox Proportional Hazards",
+     subtitle = "Stratified By Stage Early",
+     risk_table_stratify=TRUE, method="direct",
+     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
+     risk_table_theme=ggplot2::theme_classic(),
+     gg_theme=ggplot2::theme_minimal(),
+     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC'))
+
+
 
 ### Linear modelling ----
 #### Time to effect ----

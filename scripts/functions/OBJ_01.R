@@ -58,3 +58,13 @@ d03 <- d03 |> rename(any_of(rename_columns_03)) |>
 d04 <- d03 |> select(any_of(param_sel_2)) |> 
   mutate(discontinued_due_to_ae = str_remove_all(discontinued_due_to_ae, "x") |> 
            as.numeric())
+
+## Survival analyses ----
+data_surv <- d04 |> 
+  filter(!is.na(discontinuation_reason)) |> 
+  select(contains("ttnt"),
+         treatment_duration, discontinuation_reason,
+         response_duration, progression,
+         stage_early) |> 
+  mutate(stage_early = factor(stage_early),
+         discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1)) 
