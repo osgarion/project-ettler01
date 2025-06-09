@@ -614,7 +614,7 @@ The time-to-next-treatment curves reveal that patients with early-stage disease 
 
 
 ```{r stat_2_surv_cox_ttnt}
-res_cox_ttnt <- coxph(Surv(ttnt , ttnt_achieved ) ~ stage_early, 
+res_cox_ttnt <- coxph(Surv(ttnt , ttnt_achieved ) ~ stage_early + bmi, 
                    data = data_surv,
                    x = TRUE)
 res_cox_ttnt |> 
@@ -628,7 +628,7 @@ prefig_cox_res_cox_ttnt <- adjustedsurv(data=  data_surv,
   
 plot(prefig_cox_res_cox_ttnt, conf_int=TRUE, risk_table=TRUE,
                      title = "Cox Proportional Hazards",
-                     subtitle = "Stratified By Stage Early",
+                     subtitle = "Stratified By Stage Early Adjusted for BMI",
                      risk_table_stratify=TRUE, method="direct",
                      risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
                      risk_table_theme=ggplot2::theme_classic(),
@@ -644,7 +644,7 @@ The adjusted time-to-treatment-discontinuation curves for early-stage versus oth
 
 
 ```{r stat_2_surv_cox_duration}
-res_cox_dur <- coxph(Surv(treatment_duration, discontinuation_reason) ~ stage_early, 
+res_cox_dur <- coxph(Surv(treatment_duration, discontinuation_reason) ~ stage_early + bmi, 
                       data = data_surv,
                       x = TRUE)
 res_cox_dur |> 
@@ -658,7 +658,7 @@ prefig_cox_res_cox_dur <- adjustedsurv(data=  data_surv,
 
 plot(prefig_cox_res_cox_dur, conf_int=TRUE, risk_table=TRUE,
      title = "Cox Proportional Hazards",
-     subtitle = "Stratified By Stage Early",
+     subtitle = "Stratified By Stage Early Adjusted for BMI",
      risk_table_stratify=TRUE, method="direct",
      risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
      risk_table_theme=ggplot2::theme_classic(),
@@ -672,7 +672,7 @@ The adjusted duration-of-response curves for early-stage versus other patients a
 
 
 ```{r stat_2_surv_cox_prog}
-res_cox_resp <- coxph(Surv(response_duration, progression) ~ stage_early, 
+res_cox_resp <- coxph(Surv(response_duration, progression) ~ stage_early + bmi, 
                       data = data_surv,
                       x = TRUE)
 res_cox_resp |> 
@@ -686,7 +686,7 @@ prefig_cox_res_cox_resp <- adjustedsurv(data=  data_surv,
 
 plot(prefig_cox_res_cox_resp, conf_int=TRUE, risk_table=TRUE,
      title = "Cox Proportional Hazards",
-     subtitle = "Stratified By Stage Early",
+     subtitle = "Stratified By Stage Early Adjusted for BMI",
      risk_table_stratify=TRUE, method="direct",
      risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
      risk_table_theme=ggplot2::theme_classic(),
@@ -714,7 +714,8 @@ lm_spec <- linear_reg() %>%
   set_engine("lm")
 
 lm_fit <- lm_spec %>%
-  fit(response_time_to ~ factor(stage_early), data = d04)
+  fit(response_time_to ~ factor(stage_early), 
+      data = d04 |> filter(response_time_to > 0))
 
 lm_fit |> tbl_regression(show_single_row = everything())
 ```
@@ -789,26 +790,81 @@ res_timeTOeffect_02_tab |>
 
 ```
 
-##### *Stage Early* adjusted for *BMI* {.unnumbered}  
+##### Adjusted for *BMI* {.unnumbered}  
  <u>**The model equation:**</u>
 $$
 \begin{aligned}
-\operatorname{Time to response} &= \alpha + \beta_{1}(\operatorname{Stage Early}) + \epsilon\\
+\operatorname{Time to response} &= \alpha + \beta_{1}(\operatorname{BMI}) + \epsilon\\
 \varepsilon_i &\sim \mathcal{N}(0,\,\sigma^2)
 \end{aligned}
 $$
  
-```{r lm_resp_time}
+```{r lm_resp_time_bmi}
 lm_spec <- linear_reg() %>%
   set_mode("regression") %>%
   set_engine("lm")
 
-lm_fit <- lm_spec %>%
-  fit(response_time_to ~ factor(stage_early), data = d04)
+lm_fit_bmi <- lm_spec %>%
+  fit(response_time_to ~ bmi, 
+      data = d04 |>   filter(response_time_to > 0) )
 
-lm_fit |> tbl_regression(show_single_row = everything())
+lm_fit_bmi |> tbl_regression(show_single_row = everything())
 ```
  
+```{r lm_resp_time_bmi_fig}
+data_lm_01 <-  d04 |> 
+  filter(response_time_to > 0) |> 
+  select(response_time_to, bmi)
+
+pred_data <- data_lm_01 %>%
+  bind_cols(predict(lm_fit_bmi , new_data = data_lm_01,type = "conf_int")) |> 
+  bind_cols(predict(lm_fit_bmi , new_data = data_lm_01))
+
+
+model_stats <- tidy(lm_fit_bmi)
+beta <- model_stats |>  filter(term == "bmi") |>  pull(estimate)
+p_val <- model_stats %>% filter(term == "bmi") |>  pull(p.value)
+
+lm_base <- extract_fit_engine(lm_fit_bmi)  # base R lm objekt
+omega <- omega_squared(lm_base) |>  as.data.frame() |> 
+  filter(Parameter == "bmi") |>  pull(Omega2)
+
+annot_text <- sprintf("β = %.3f\np = %.3f\nω² = %.3f", beta, p_val, omega)
+x_pos <- min(pred_data$bmi, na.rm = TRUE) *1.1
+y_pos <- max(pred_data$response_time_to, na.rm = TRUE)
+
+
+ggplot(pred_data, aes(x = bmi, y = response_time_to)) +
+  geom_point(alpha = 0.7) +
+  geom_ribbon(aes(ymin = .pred_lower, ymax = .pred_upper), alpha = 0.2) +
+  geom_line(aes(y = .pred), color = "blue", linewidth = 1) +
+  labs(
+    x = "BMI", y = "Time to response [months]",
+    title = "Linear model fit - Time to response ~ BMI"
+  ) +
+  geom_text(
+    aes(x = x_pos, y = y_pos, label = annot_text),
+    hjust = 1, vjust = 1, size = 4.5, lineheight = 1.2
+  ) +
+  # theme_minimal(base_size = 14) +
+  theme_sjplot2() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold")
+  )
+```
+ 
+ 
+ We fitted a linear model (estimated using OLS) to predict *Time to response* with *BMI*. The model explains a statistically significant and moderate proportion of
+variance (R2 = 0.24, F(1, 27) = 8.64, p = 0.007, adj. R2 = 0.21). The model's intercept,
+corresponding to bmi = 0, is at -3.62 (95% CI [-8.85, 1.62], t(27) = -1.42, p = 0.168). Within this
+model:
+
+  - The effect of bmi is statistically significant and positive (beta = 0.28, 95% CI [0.09, 0.48],
+t(27) = 2.94, p = 0.007; Std. beta = 0.49, 95% CI [0.15, 0.84])
+
+Standardized parameters were obtained by fitting the model on a standardized version of the dataset.
+95% Confidence Intervals (CIs) and p-values were computed using a Wald t-distribution approximation.
+
 
 # Conclussion  
 
