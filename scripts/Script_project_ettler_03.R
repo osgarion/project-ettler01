@@ -26,6 +26,9 @@ save(legend_03, d04,
      res_surv_ttnt_02, 
      res_surv_durTRTeffect_02, 
      res_surv_response_02,
+     res_surv_ttnt_03,
+     res_surv_durTRTeffect_03,
+     res_surv_ProgFreeSurv_03,
      file = "reports/markD_03.RData")
 save.image("reports/markD_03.RData")
 # Save the tables into data/tables.RData by listing them individually
@@ -601,9 +604,7 @@ res_timeTOeffect_02_tab |>
            general = "Data without zero values.")
 
 
-### Additional Analyses
-
-### Additionally analyses----
+### 1st Additionally analyses----
 #### Time to next treatment ----
 res_surv_ttnt_02 <- d04 |> 
   select(contains("ttnt"), stage_early, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy, sex) |> 
@@ -637,6 +638,17 @@ res_surv_ttnt_02 <- d04 |>
   select(-surv_cat,-surv_cont)
 
 # Figure
+lm_spec <- linear_reg() %>%
+  set_mode("regression") %>%
+  set_engine("lm")
+
+lm_fit_bmi <- lm_spec %>%
+  fit(response_time_to ~ bmi, 
+      data = d04 |>   filter(response_time_to > 0) )
+
+lm_fit_bmi |> tbl_regression(show_single_row = everything())
+
+
 data_lm_01 <-  d04 |> 
   filter(response_time_to > 0) |> 
   select(response_time_to, bmi)
@@ -749,3 +761,266 @@ res_surv_response_02 <- d04 |>
   ) |> 
   mutate(surv = coalesce(surv_cat,surv_cont)) |> 
   select(-surv_cat,-surv_cont)
+
+### 2nd Additionally analyses----
+#### Time to next treatment ----
+res_surv_ttnt_03 <- d04 |>
+  filter(!is.na(discontinuation_reason)) |>
+  select(
+    contains("ttnt"),
+    treatment_duration, discontinuation_reason,
+    response_duration, progression,
+    stage_early,
+    sex, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy
+  ) |>
+  mutate(
+    stage_early = factor(stage_early),
+    discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1),
+    sex = if_else(sex == "F", 0, 1)
+  ) |>
+  pivot_longer(
+    cols = c(sex, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy),
+    names_to = "indep_name",
+    values_to = "indep_value"
+  ) |>
+  mutate(indep_value = factor(indep_value)) |>
+  group_by(indep_name) |>
+  nest() |>
+  mutate(
+    mod = map(data, ~ coxph(Surv(ttnt, ttnt_achieved) ~ indep_value + stage_early,
+                            data = .x, x = TRUE
+    )),
+    tbl = map2(mod, indep_name, ~ tbl_regression(
+      .x,
+      exp = TRUE,
+      show_single_row = everything(),
+      label = setNames(list(.y), "indep_value")
+    )),
+    prefig = map2(data, mod, ~ adjustedsurv(
+      data = .x,
+      variable = "indep_value", ev_time = "ttnt",
+      event = "ttnt_achieved", method = "direct",
+      outcome_model = .y, conf_int = TRUE
+    )),
+    fig = map2(prefig, indep_name, ~ plot(
+      .x,
+      conf_int = TRUE, risk_table = TRUE,
+      title = "Cox Proportional Hazards",
+      legend.title = .y,
+      subtitle = paste0("Stratified By ", .y, " and Adjusted for Stage Early"),
+      risk_table_stratify = TRUE, method = "direct",
+      risk_table_digits = 0, x_n_breaks = 10, median_surv_lines = TRUE,
+      risk_table_theme = ggplot2::theme_classic(),
+      gg_theme = ggplot2::theme_minimal(),
+      xlab = "Months",
+      custom_colors = c("#E7B800", "#2e9fdf", "#FC4E07", "#9900CC")
+    ))
+  ) |>
+  bind_rows(
+    d04 |>
+      filter(!is.na(discontinuation_reason)) |>
+      select(
+        contains("ttnt"),
+        treatment_duration, discontinuation_reason,
+        response_duration, progression,
+        stage_early,
+        bmi, age
+      ) |>
+      mutate(
+        stage_early = factor(stage_early),
+        discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1)
+      ) |>
+      pivot_longer(
+        cols = c(bmi, age),
+        names_to = "indep_name",
+        values_to = "indep_value"
+      ) |>
+      group_by(indep_name) |>
+      nest() |>
+      mutate(
+        mod = map(data, ~ coxph(Surv(ttnt, ttnt_achieved) ~ indep_value + stage_early,
+                                data = .x,
+                                x = TRUE
+        )),
+        tbl = map2(mod, indep_name, ~ tbl_regression(.x,
+                                                     exp = TRUE,
+                                                     show_single_row = everything(),
+                                                     label = setNames(list(.y), "indep_value")
+        ))
+      )
+  )
+
+#### Treatment duration ----
+res_surv_durTRTeffect_03 <- d04 |>
+  filter(!is.na(discontinuation_reason)) |>
+  select(
+    contains("ttnt"),
+    treatment_duration, discontinuation_reason,
+    response_duration, progression,
+    stage_early,
+    sex, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy
+  ) |>
+  mutate(
+    stage_early = factor(stage_early),
+    discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1),
+    sex = if_else(sex == "F", 0, 1)
+  ) |>
+  pivot_longer(
+    cols = c(sex, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy),
+    names_to = "indep_name",
+    values_to = "indep_value"
+  ) |>
+  mutate(indep_value = factor(indep_value)) |>
+  group_by(indep_name) |>
+  nest() |>
+  mutate(
+    mod = map(data, ~ coxph(Surv(treatment_duration, discontinuation_reason) ~ indep_value,
+                            data = .x, x = TRUE
+    )),
+    tbl = map2(mod, indep_name, ~ tbl_regression(
+      .x,
+      exp = TRUE,
+      show_single_row = everything(),
+      label = setNames(list(.y), "indep_value")
+    )),
+    prefig = map2(data, mod, ~ adjustedsurv(
+      data = .x,
+      variable = "indep_value", ev_time = "treatment_duration",
+      event = "discontinuation_reason", method = "direct",
+      outcome_model = .y, conf_int = TRUE
+    )),
+    fig = map2(prefig, indep_name, ~ plot(
+      .x,
+      conf_int = TRUE, risk_table = TRUE,
+      title = "Cox Proportional Hazards",
+      legend.title = .y,
+      subtitle = paste0("Stratified By ", .y),
+      risk_table_stratify = TRUE, method = "direct",
+      risk_table_digits = 0, x_n_breaks = 10, median_surv_lines = TRUE,
+      risk_table_theme = ggplot2::theme_classic(),
+      gg_theme = ggplot2::theme_minimal(),
+      xlab = "Months",
+      custom_colors = c("#E7B800", "#2e9fdf", "#FC4E07", "#9900CC")
+    ))
+  ) |>
+  bind_rows(
+    d04 |>
+      filter(!is.na(discontinuation_reason)) |>
+      select(
+        contains("ttnt"),
+        treatment_duration, discontinuation_reason,
+        response_duration, progression,
+        stage_early,
+        bmi, age
+      ) |>
+      mutate(
+        stage_early = factor(stage_early),
+        discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1)
+      ) |>
+      pivot_longer(
+        cols = c(bmi, age),
+        names_to = "indep_name",
+        values_to = "indep_value"
+      ) |>
+      group_by(indep_name) |>
+      nest() |>
+      mutate(
+        mod = map(data, ~ coxph(Surv(treatment_duration, discontinuation_reason) ~ indep_value,
+                                data = .x,
+                                x = TRUE
+        )),
+        tbl = map2(mod, indep_name, ~ tbl_regression(.x,
+                                                     exp = TRUE,
+                                                     show_single_row = everything(),
+                                                     label = setNames(list(.y), "indep_value")
+        ))
+      )
+  )
+
+#### Progression free survival ----
+res_surv_ProgFreeSurv_03 <- d04 |>
+  filter(!is.na(discontinuation_reason)) |>
+  select(
+    contains("ttnt"),
+    treatment_duration, discontinuation_reason,
+    response_duration, progression,
+    stage_early,
+    sex, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy
+  ) |>
+  mutate(
+    stage_early = factor(stage_early),
+    discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1),
+    sex = if_else(sex == "F", 0, 1)
+  ) |>
+  pivot_longer(
+    cols = c(sex, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy),
+    names_to = "indep_name",
+    values_to = "indep_value"
+  ) |>
+  mutate(indep_value = factor(indep_value)) |>
+  group_by(indep_name) |>
+  nest() |>
+  mutate(
+    mod = map(data, ~ coxph(Surv(response_duration, progression) ~ indep_value,
+                            data = .x, x = TRUE
+    )),
+    tbl = map2(mod, indep_name, ~ tbl_regression(
+      .x,
+      exp = TRUE,
+      show_single_row = everything(),
+      label = setNames(list(.y), "indep_value")
+    )),
+    prefig = map2(data, mod, ~ adjustedsurv(
+      data = .x,
+      variable = "indep_value", ev_time = "response_duration",
+      event = "progression", method = "direct",
+      outcome_model = .y, conf_int = TRUE
+    )),
+    fig = map2(prefig, indep_name, ~ plot(
+      .x,
+      conf_int = TRUE, risk_table = TRUE,
+      title = "Cox Proportional Hazards",
+      legend.title = .y,
+      subtitle = paste0("Stratified By ", .y),
+      risk_table_stratify = TRUE, method = "direct",
+      risk_table_digits = 0, x_n_breaks = 10, median_surv_lines = TRUE,
+      risk_table_theme = ggplot2::theme_classic(),
+      gg_theme = ggplot2::theme_minimal(),
+      xlab = "Months",
+      custom_colors = c("#E7B800", "#2e9fdf", "#FC4E07", "#9900CC")
+    ))
+  ) |>
+  bind_rows(
+    d04 |>
+      filter(!is.na(discontinuation_reason)) |>
+      select(
+        contains("ttnt"),
+        treatment_duration, discontinuation_reason,
+        response_duration, progression,
+        stage_early,
+        bmi, age
+      ) |>
+      mutate(
+        stage_early = factor(stage_early),
+        discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1)
+      ) |>
+      pivot_longer(
+        cols = c(bmi, age),
+        names_to = "indep_name",
+        values_to = "indep_value"
+      ) |>
+      group_by(indep_name) |>
+      nest() |>
+      mutate(
+        mod = map(data, ~ coxph(Surv(response_duration, progression) ~ indep_value,
+                                data = .x,
+                                x = TRUE
+        )),
+        tbl = map2(mod, indep_name, ~ tbl_regression(.x,
+                                                     exp = TRUE,
+                                                     show_single_row = everything(),
+                                                     label = setNames(list(.y), "indep_value")
+        ))
+      )
+  )
+

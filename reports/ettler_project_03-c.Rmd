@@ -575,6 +575,7 @@ res_logist_04_tab_a <- res_logist_04 |>
 
 res_logist_04_tab_a |> 
   select(-std.error, - statistic) |> 
+  mutate(term = if_else(term == "indep_value",indep_name,term)) |> 
   kable(col.names = c("Dependent", "Adjusted for", "Independent", "Odds Ratio", "p-value",
                       "5% CI", "95% CI")) |> 
   kable_styling(
@@ -586,7 +587,6 @@ res_logist_04_tab_a |>
   ) %>%
   collapse_rows(columns = 1:2, valign = "top")
 ```
-
 
 
 
@@ -604,95 +604,247 @@ A standard Cox PH results table typically includes:
 
 ***Cox PH Plot***
 
-To visualize model-based survival differences you can use:
+To visualize model-based survival differences you can use:  
 - **Dichotomous variable plot:** Two survival curves (e.g., exposed vs. unexposed), annotated with HR and p-value from the Cox model.  
 
 
-#### Time to next treatment {.unnumbered}  
+#### Time to next treatment {.tabset .tabset-fade .tabset-pills .unnumbered}  
 
-The time-to-next-treatment curves reveal that patients with early-stage disease went much longer before requiring another therapy—median around 45 months versus roughly 8 months in the comparison group—and the Cox model indicates a 74 % lower hazard of starting subsequent treatment in the early-stage cohort (HR 0.26, 95 % CI 0.08–0.80; p = 0.018).
+##### Sex {.unnumbered}  
 
 
-```{r stat_2_surv_cox_ttnt}
-res_cox_ttnt <- coxph(Surv(ttnt , ttnt_achieved ) ~ stage_early + bmi, 
-                   data = data_surv,
-                   x = TRUE)
-res_cox_ttnt |> 
-   tbl_regression(exp = TRUE,
-                  show_single_row = everything())
+he model was stratified by sex and adjusted for early stage of disease. The adjusted survival curves showed similar trajectories across sex groups (HR = 0.95, 95% CI: 0.44–2.04; p = 0.9), indicating no significant association between sex and survival. However, early-stage disease was significantly associated with improved survival (HR = 0.25, 95% CI: 0.07–0.85; p = 0.027).  
 
-prefig_cox_res_cox_ttnt <- adjustedsurv(data=  data_surv, 
-                                variable="stage_early", ev_time="ttnt",
-                                event="ttnt_achieved", method="direct",
-                                outcome_model=res_cox_ttnt, conf_int=TRUE)
-  
-plot(prefig_cox_res_cox_ttnt, conf_int=TRUE, risk_table=TRUE,
-                     title = "Cox Proportional Hazards",
-                     subtitle = "Stratified By Stage Early Adjusted for BMI",
-                     risk_table_stratify=TRUE, method="direct",
-                     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
-                     risk_table_theme=ggplot2::theme_classic(),
-                     gg_theme=ggplot2::theme_minimal(),
-                     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC'))
+
+
+```{r stat_2_surv_cox_ttnt_sex}
+res_surv_ttnt_03$tbl[[1]]
+res_surv_ttnt_03$fig[[1]]
 ```
 
 
 
-#### Duration treatment  {.unnumbered}  
+##### PS-ECOG {.unnumbered}  
 
-The adjusted time-to-treatment-discontinuation curves for early-stage versus other patients almost completely overlap, with median durations of about 20 months in both groups, and Cox regression shows no significant difference in the hazard of stopping treatment (HR 1.06, 95 % CI 0.45–2.48; p = 0.9).  
+A Cox proportional hazards model stratified by PS ECOG and adjusted for early stage showed no significant association between performance status and survival (HR = 1.00, 95% CI: 0.48–2.10; p > 0.9). In contrast, early-stage disease was significantly associated with better survival (HR = 0.26, 95% CI: 0.08–0.80; p = 0.019).  
 
 
-```{r stat_2_surv_cox_duration}
-res_cox_dur <- coxph(Surv(treatment_duration, discontinuation_reason) ~ stage_early + bmi, 
-                      data = data_surv,
-                      x = TRUE)
-res_cox_dur |> 
-  tbl_regression(exp = TRUE,
-                 show_single_row = everything())
-
-prefig_cox_res_cox_dur <- adjustedsurv(data=  data_surv, 
-                                        variable="stage_early", ev_time="treatment_duration",
-                                        event="discontinuation_reason", method="direct",
-                                        outcome_model=res_cox_dur, conf_int=TRUE)
-
-plot(prefig_cox_res_cox_dur, conf_int=TRUE, risk_table=TRUE,
-     title = "Cox Proportional Hazards",
-     subtitle = "Stratified By Stage Early Adjusted for BMI",
-     risk_table_stratify=TRUE, method="direct",
-     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
-     risk_table_theme=ggplot2::theme_classic(),
-     gg_theme=ggplot2::theme_minimal(),
-     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC')) 
+```{r stat_2_surv_cox_ttnt_ps_ecog}
+res_surv_ttnt_03$tbl[[2]]
+res_surv_ttnt_03$fig[[2]]
 ```
 
-#### Progression free survival  {.unnumbered}  
+##### First Systemic Therapy {.unnumbered}  
 
-The adjusted duration-of-response curves for early-stage versus other patients almost completely overlap, with median DOR of about 17–18 months in both groups, and Cox regression shows no significant difference in the hazard of progression (HR 0.46, 95 % CI 0.13–1.59; p = 0.2).  
+A Cox proportional hazards model stratified by first systemic therapy and adjusted for early stage showed no significant association between the type of first systemic therapy and survival (HR = 0.77, 95% CI: 0.24–2.48; p = 0.7). Early-stage disease showed a trend toward better survival, but the association did not reach statistical significance (HR = 0.31, 95% CI: 0.08–1.15; p = 0.080).  
 
-
-```{r stat_2_surv_cox_prog}
-res_cox_resp <- coxph(Surv(response_duration, progression) ~ stage_early + bmi, 
-                      data = data_surv,
-                      x = TRUE)
-res_cox_resp |> 
-  tbl_regression(exp = TRUE,
-                 show_single_row = everything())
-
-prefig_cox_res_cox_resp <- adjustedsurv(data=  data_surv, 
-                                        variable="stage_early", ev_time="response_duration",
-                                        event="progression", method="direct",
-                                        outcome_model=res_cox_resp, conf_int=TRUE)
-
-plot(prefig_cox_res_cox_resp, conf_int=TRUE, risk_table=TRUE,
-     title = "Cox Proportional Hazards",
-     subtitle = "Stratified By Stage Early Adjusted for BMI",
-     risk_table_stratify=TRUE, method="direct",
-     risk_table_digits=0, x_n_breaks=10, median_surv_lines=TRUE,
-     risk_table_theme=ggplot2::theme_classic(),
-     gg_theme=ggplot2::theme_minimal(),
-     xlab="Months", custom_colors=c('#E7B800', '#2e9fdf', '#FC4E07', '#9900CC'))
+```{r stat_2_surv_cox_ttnt_firstTH}
+res_surv_ttnt_03$tbl[[3]]
+res_surv_ttnt_03$fig[[3]]
 ```
+
+
+##### Adverse Effect Grade 3-4 {.unnumbered}  
+
+A Cox proportional hazards model stratified by occurrence of grade 3–4 adverse events and adjusted for early stage showed no significant association between severe adverse events and survival (HR = 0.65, 95% CI: 0.31–1.37; p = 0.3). In contrast, early-stage disease was significantly associated with improved survival (HR = 0.20, 95% CI: 0.06–0.68; p = 0.010).  
+
+
+```{r stat_2_surv_cox_ttnt_aegrade}
+res_surv_ttnt_03$tbl[[4]]
+res_surv_ttnt_03$fig[[4]]
+```
+
+
+##### Monotherapy {.unnumbered}  
+
+A Cox proportional hazards model stratified by monotherapy use and adjusted for early stage showed no significant association between monotherapy and survival (HR = 0.78, 95% CI: 0.35–1.74; p = 0.5). Early-stage disease was significantly associated with better survival (HR = 0.29, 95% CI: 0.09–0.92; p = 0.036).  
+
+
+```{r stat_2_surv_cox_ttnt_monotherapy}
+res_surv_ttnt_03$tbl[[5]]
+res_surv_ttnt_03$fig[[5]]
+```
+
+
+##### BMI {.unnumbered}  
+
+A Cox proportional hazards model stratified by BMI and adjusted for early stage showed no significant association between BMI and survival (HR = 1.00, 95% CI: 0.93–1.06; p = 0.9). In contrast, early-stage disease was significantly associated with improved survival (HR = 0.26, 95% CI: 0.08–0.80; p = 0.019).  
+
+
+```{r stat_2_surv_cox_ttnt_bmi}
+res_surv_ttnt_03$tbl[[6]]
+
+```
+
+##### Age {.unnumbered}  
+
+A Cox proportional hazards model stratified by age and adjusted for early stage showed no significant association between age and survival (HR = 1.02, 95% CI: 0.99–1.04; p = 0.3). Early-stage disease was significantly associated with better survival (HR = 0.28, 95% CI: 0.09–0.87; p = 0.027).  
+
+
+
+```{r stat_2_surv_cox_ttnt_age}
+res_surv_ttnt_03$tbl[[7]]
+
+```
+
+
+
+#### Duration treatment {.tabset .tabset-fade .tabset-pills .unnumbered}
+
+##### Sex {.unnumbered}  
+
+A Cox proportional hazards model assessing treatment duration showed no significant association between sex and treatment duration (HR = 0.87, 95% CI: 0.44–1.74; p = 0.7).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_sex}
+res_surv_durTRTeffect_03$tbl[[1]]
+res_surv_durTRTeffect_03$fig[[1]]
+```
+
+
+##### PS-ECOG {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between baseline performance status (PS ECOG) and treatment duration (HR = 1.29, 95% CI: 0.62–2.67; p = 0.5).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_ps_ecog}
+res_surv_durTRTeffect_03$tbl[[2]]
+res_surv_durTRTeffect_03$fig[[2]]
+```
+
+##### First Systemic Therapy {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between the type of first systemic therapy and treatment duration (HR = 1.26, 95% CI: 0.57–2.83; p = 0.6).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_firstTH}
+res_surv_durTRTeffect_03$tbl[[3]]
+res_surv_durTRTeffect_03$fig[[3]]
+```
+
+
+##### Adverse Effect Grade 3-4 {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between the occurrence of grade 3–4 adverse events and treatment duration (HR = 1.46, 95% CI: 0.72–2.95; p = 0.3).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_aegrade}
+res_surv_durTRTeffect_03$tbl[[4]]
+res_surv_durTRTeffect_03$fig[[4]]
+```
+
+
+##### Monotherapy {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between monotherapy use and treatment duration (HR = 1.13, 95% CI: 0.57–2.27; p = 0.7).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_monotherapy}
+res_surv_durTRTeffect_03$tbl[[5]]
+res_surv_durTRTeffect_03$fig[[5]]
+```
+
+
+##### BMI {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between BMI and treatment duration (HR = 1.04, 95% CI: 0.97–1.10; p = 0.3).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_bmi}
+res_surv_durTRTeffect_03$tbl[[6]]
+
+```
+
+##### Age {.unnumbered}  
+
+A Cox proportional hazards model showed a non-significant trend toward longer treatment duration with increasing age (HR = 1.03, 95% CI: 1.00–1.06; p = 0.068).  
+
+
+```{r stat_2_surv_cox_durTRTeffect_age}
+res_surv_durTRTeffect_03$tbl[[7]]
+
+```
+
+
+
+#### Progression free survival  {.tabset .tabset-fade .tabset-pills .unnumbered}  
+
+##### Sex {.unnumbered}  
+
+A Cox proportional hazards model showed a non-significant trend toward shorter progression-free survival in male sex group (HR = 2.64, 95% CI: 0.96–7.23; p = 0.060).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_sex}
+res_surv_ProgFreeSurv_03$tbl[[1]]
+res_surv_ProgFreeSurv_03$fig[[1]]
+```
+
+
+##### PS-ECOG {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between baseline performance PS ECOG)and progression-free survival (HR = 1.30, 95% CI: 0.54–3.14; p = 0.6).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_ps_ecog}
+res_surv_ProgFreeSurv_03$tbl[[2]]
+res_surv_ProgFreeSurv_03$fig[[2]]
+```
+
+##### First Systemic Therapy {.unnumbered}  
+
+A Cox proportional hazards model showed a non-significant trend toward longer progression-free survival with the type of first systemic therapy (HR = 0.32, 95% CI: 0.07–1.38; p = 0.12).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_firstTH}
+res_surv_ProgFreeSurv_03$tbl[[3]]
+res_surv_ProgFreeSurv_03$fig[[3]]
+```
+
+
+##### Adverse Effect Grade 3-4 {.unnumbered}  
+
+A Cox proportional hazards model showed no significant association between the occurrence of grade 3–4 adverse events and progression-free survival (HR = 1.09, 95% CI: 0.45–2.64; p = 0.9).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_aegrade}
+res_surv_ProgFreeSurv_03$tbl[[4]]
+res_surv_ProgFreeSurv_03$fig[[4]]
+```
+
+
+##### Monotherapy {.unnumbered}  
+
+A Cox proportional hazards model showed a significant association between monotherapy and improved progression-free survival (HR = 0.35, 95% CI: 0.13–0.96; p = 0.041).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_monotherapy}
+res_surv_ProgFreeSurv_03$tbl[[5]]
+res_surv_ProgFreeSurv_03$fig[[5]]
+```
+
+
+##### BMI {.unnumbered}  
+
+A Cox proportional hazards model showed a non-significant trend toward shorter progression-free survival with increasing BMI (HR = 1.06, 95% CI: 0.98–1.15; p = 0.13).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_bmi}
+res_surv_ProgFreeSurv_03$tbl[[6]]
+
+```
+
+##### Age {.unnumbered}  
+
+A Cox proportional hazards model showed a non-significant trend toward shorter progression-free survival with increasing age (HR = 1.04, 95% CI: 1.00–1.08; p = 0.078).  
+
+
+```{r stat_2_surv_cox_ProgFreeSurv_age}
+res_surv_ProgFreeSurv_03$tbl[[7]]
+
+```
+
+
+
 
 ### Linear regression  
 #### Time to response  {.tabset .tabset-fade .tabset-pills}
@@ -772,6 +924,7 @@ res_timeTOeffect_02_tab <- res_timeTOeffect_02|>
 
 res_timeTOeffect_02_tab |> 
   select(-std.error, - statistic) |> 
+  mutate(term = if_else(term == "indep_value",indep_name,term)) |> 
   kable(col.names = c("Independent", "Term", "Estimate", "p-value",
                       "5% CI", "95% CI"),
         digits = 3) |> 
@@ -830,7 +983,7 @@ omega <- omega_squared(lm_base) |>  as.data.frame() |>
   filter(Parameter == "bmi") |>  pull(Omega2)
 
 annot_text <- sprintf("β = %.3f\np = %.3f\nω² = %.3f", beta, p_val, omega)
-x_pos <- min(pred_data$bmi, na.rm = TRUE) *1.1
+x_pos <- min(pred_data$bmi, na.rm = TRUE) *1.2
 y_pos <- max(pred_data$response_time_to, na.rm = TRUE)
 
 
@@ -868,9 +1021,11 @@ Standardized parameters were obtained by fitting the model on a standardized ver
 
 # Conclussion  
 
-### Summary
+This study comprehensively assessed the tolerability and efficacy of bexarotene in patients with T-cell lymphoma. Logistic regression revealed that **monotherapy significantly increased the risk of treatment discontinuation due to adverse events**, and **higher BMI was strongly associated with severe Grade 3–4 hypertriglyceridemia**. However, no variable significantly predicted objective response in logistic or linear models, including time to best response.
 
-This analysis explored both the tolerability and efficacy of bexarotene in patients with T-lymphoma, highlighting that monotherapy significantly increased the likelihood of treatment discontinuation due to adverse events ([Logistic regression analysis](#logistic-model)) :contentReference[oaicite:0]{index=0} and that higher BMI was strongly associated with severe Grade 3–4 hypertriglyceridemia ([BMI & hypertriglyceridemia](#box-plot---bmi)) :contentReference[oaicite:1]{index=1}. Early-stage patients were more likely to receive first-line systemic therapy or monotherapy, which correlated with objective response, although linear modeling found no variable that significantly predicted time to best response :contentReference[oaicite:2]{index=2}. In survival analyses, early-stage patients went much longer before requiring another treatment ([Time to next treatment](#time-to-next-treatment)) :contentReference[oaicite:3]{index=3}, while duration-of-response curves overlapped between groups ([Duration of response](#disease-progression-response-time)) :contentReference[oaicite:4]{index=4} and time-to-treatment-discontinuation was nearly identical ([Treatment discontinuation analysis](#duration-treatment)) :contentReference[oaicite:5]{index=5}. Overall, these findings underscore the need for personalized risk assessment—particularly considering metabolic profile and therapeutic approach—when initiating bexarotene therapy. :contentReference[oaicite:6]{index=6}
+In survival analyses, **early-stage disease consistently emerged as the strongest predictor of improved outcomes**, being significantly associated with longer time to next treatment and better overall survival across multiple models. While no other covariate—including age, sex, BMI, ECOG status, adverse events, or initial therapy—was significantly associated with time to next treatment or treatment duration, **a trend was observed for older age correlating with prolonged treatment**.
+
+Importantly, **monotherapy was associated with longer progression-free survival**, while other variables, such as BMI and age, showed non-significant trends. These results support the role of **early-stage diagnosis and careful treatment planning** in optimizing outcomes. Moreover, **patients with elevated BMI may require closer monitoring** due to the higher risk of metabolic toxicity. Overall, personalized risk assessment remains essential in guiding therapeutic decisions for bexarotene-treated patients.  
 
 
 # Session info

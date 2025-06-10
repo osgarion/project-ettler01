@@ -2,6 +2,20 @@
 Retrospektivní analýza pacientů s primárním kožním T buněčným lymfomem (Mycosis fungoides a Sézaryho syndrom) léčených bexarotenem (fir.název Targretin). Celkem 45 pacientů.
 
 ##### Communication #####
+#2025-06-09
+Ahoj Jirko, snad je uz synovi lepe a diky, ze na tom pracujes
+
+nemam jasne poznamky z minula taky, ale pokusim se to shrnout:
+
+1) v poslednim zpracovani jsi zhodnotil, ze u Time to response neni rozdil mezi early stage a advanced stage a zaroven jsi pri adjustaci zjistil, ze BMI hraje statitsticky suignifikantni roli (cim vetsi BMI, tim kratsi doba do response) -> tady jsem prosil, zda bys tenhle trennd mohl nejak graficky znaroznit
+
+2) u response_achieved jsi nenasel rozdil mezi early a advanced stage a ani zadne signifikantni zavislosti pri adjustaci na age, sex, bmi, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy  -> tady neni co dodat
+
+3) TTNT je signifikantni rozdil mezi early a advanced stage.  Prosim u aearly a advanced stage zjistit, zda hraje signifikantni roli i age, sex, bmi, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy (jako u bodu 1 a 2 )
+4) Treatment duration nehraje roli early stage - prosim o zjisteni role age, sex, bmi, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy (jako u bodu 1 a 2 )
+5) u progresion free survival nehraje roli early stage - resp. prilis malo dat - prosim zde take hodnoceni role age, sex, bmi, ps_ecog, first_syst_th, ae_grade_3_4, monotherapy (jako u bodu 1 a 2 )
+----------------------------------------------------------------------------------
+
 #2025-05-18
 Ahoj Jirko, 
 já bych se měl omlouvat a naopak děkuju, že na naši práci pořád takhle myslíš : ).
@@ -36,7 +50,7 @@ A díky moc za Tvou angažovanost, posuny v hodnocení mě naplňují optimismem
 
 Měj se fajn,
 Jirka
-
+-------------------------------------------------------------------------------
 
 
 
