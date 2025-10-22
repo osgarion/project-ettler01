@@ -13,7 +13,7 @@ if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse, purrr,conflicted)
 
 # Functions and libraries uploading
-list.files("scripts/functions/", pattern="*.*", full.names=TRUE) %>% map(~source(.))
+list.files("scripts/functions/", pattern="*.*", full.names=TRUE)  |>  map(~source(.))
 
 # Back-up
 back_up("scripts/functions/FUN_01.R") # the the destination subdirectory specify using 'path_dest'
