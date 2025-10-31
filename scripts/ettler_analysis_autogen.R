@@ -456,7 +456,7 @@ for (sp in km_specs) {
       event = ensure_binary_event(.data$event),
       stage = as.factor(.data$stage)
     ) |>
-    { if (identical(sp$label, "treatment_duration")) dplyr::mutate(., event = dplyr::if_else(.data$event == 0, 0L, 1L)) else . } |>
+    (\(d) if (identical(sp$label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d) |>
     dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
   if (nrow(df_km) > 0) {
     f <- survival::survfit(survival::Surv(time, event) ~ stage, data = df_km)
