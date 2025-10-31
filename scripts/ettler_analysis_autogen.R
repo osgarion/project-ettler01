@@ -249,6 +249,13 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
       s <- as.data.frame(summary(tr, infer = c(TRUE, TRUE)))
       td <- tibble::tibble(!!stage_var := s[[stage_var]], estimate = s$trend, conf.low = s$lower.CL, conf.high = s$upper.CL, p.value = s$`p.value`)
     }
+    # Normalize column names
+    if (!("estimate" %in% names(td))) {
+      alt <- intersect(c("emmean", "emtrend", "trend"), names(td))
+      if (length(alt) >= 1) td <- dplyr::rename(td, estimate = !!rlang::sym(alt[1]))
+    }
+    if (!("conf.low" %in% names(td)) && ("lower.CL" %in% names(td))) td <- dplyr::rename(td, conf.low = .data$lower.CL)
+    if (!("conf.high" %in% names(td)) && ("upper.CL" %in% names(td))) td <- dplyr::rename(td, conf.high = .data$upper.CL)
     if (!(stage_var %in% names(td))) names(td)[1] <- stage_var
     if (model_type %in% c("logistic", "cox")) {
       td <- td |>
@@ -307,12 +314,25 @@ if (length(fn_files)) {
 ## 04) Load data ----------------------------------------------------------
 # Prefer objects created by sourced files (OBJ_01.R defines d04)
 if (!exists("d04")) {
-  message("'d04' not found after sourcing. Trying to load reports/markD_03.RData ...")
+  message("'d04' not found after sourcing. Trying to import reports/markD_03.RData via rio ...")
   data_rdata <- "reports/markD_03.RData"
   if (!file.exists(data_rdata)) {
     invisible(tryCatch(check_and_fuzzy_path(data_rdata), error = function(e) stop(e)))
   }
-  load(data_rdata)
+  d04_try <- try(rio::import(data_rdata), silent = TRUE)
+  if (!inherits(d04_try, "try-error")) {
+    if (is.data.frame(d04_try)) {
+      d04 <- d04_try
+    } else if (is.list(d04_try) && "d04" %in% names(d04_try)) {
+      d04 <- d04_try[["d04"]]
+    }
+  }
+  if (!exists("d04")) {
+    # Fallback to base load with environment capture
+    env <- new.env()
+    load(data_rdata, envir = env)
+    if (exists("d04", envir = env)) d04 <- get("d04", envir = env)
+  }
 }
 
 if (!exists("d04")) {
@@ -436,6 +456,7 @@ for (sp in km_specs) {
       event = ensure_binary_event(.data$event),
       stage = as.factor(.data$stage)
     ) |>
+    { if (identical(sp$label, "treatment_duration")) dplyr::mutate(., event = dplyr::if_else(.data$event == 0, 0L, 1L)) else . } |>
     dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
   if (nrow(df_km) > 0) {
     f <- survival::survfit(survival::Surv(time, event) ~ stage, data = df_km)
@@ -465,21 +486,32 @@ drop_log <- nrow(df_log) - nrow(stats::na.omit(model.frame(y ~ stage, data = df_
 mod_log <- tryCatch(stats::glm(y ~ stage, data = df_log, family = stats::binomial()), error = function(e) NULL)
 log_all <- if (!is.null(mod_log)) extract_logistic_effects(mod_log, term = "stage") else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
 
-# Stage-specific subgroup summaries: odds (intercept-only models per stage)
+# Stage-specific subgroup summaries: odds via emmeans (on logit scale -> odds)
 log_levels <- levels(as.factor(df_log$stage))
-if (length(log_levels) >= 2) {
-  s0 <- dplyr::filter(df_log, as.character(stage) == log_levels[1])
-  s1 <- dplyr::filter(df_log, as.character(stage) == log_levels[2])
-  m0 <- tryCatch(stats::glm(y ~ 1, data = s0, family = stats::binomial()), error = function(e) NULL)
-  m1 <- tryCatch(stats::glm(y ~ 1, data = s1, family = stats::binomial()), error = function(e) NULL)
-  log_s0 <- if (!is.null(m0)) {
-    tt <- broom::tidy(m0, conf.int = TRUE, exponentiate = TRUE)
-    dplyr::transmute(dplyr::filter(tt, .data$term == "(Intercept)"), estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
-  } else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-  log_s1 <- if (!is.null(m1)) {
-    tt <- broom::tidy(m1, conf.int = TRUE, exponentiate = TRUE)
-    dplyr::transmute(dplyr::filter(tt, .data$term == "(Intercept)"), estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
-  } else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+if (!is.null(mod_log) && length(log_levels) >= 1 && requireNamespace("emmeans", quietly = TRUE)) {
+  ems <- try(emmeans::emmeans(mod_log, ~ stage), silent = TRUE)
+  if (!inherits(ems, "try-error")) {
+    sm <- as.data.frame(summary(ems, infer = c(TRUE, TRUE)))
+    # sm has columns: stage, emmean, lower.CL, upper.CL on logit; convert to odds
+    sm <- sm |>
+      dplyr::mutate(estimate = exp(.data$emmean), conf.low = exp(.data$lower.CL), conf.high = exp(.data$upper.CL), p.value = .data$p.value)
+    # Extract first two levels if present
+    log_s0 <- sm |>
+      dplyr::filter(as.character(.data$stage) == log_levels[1]) |>
+      dplyr::select(estimate, conf.low, conf.high, p.value) |>
+      dplyr::slice_head(n = 1)
+    if (length(log_levels) >= 2) {
+      log_s1 <- sm |>
+        dplyr::filter(as.character(.data$stage) == log_levels[2]) |>
+        dplyr::select(estimate, conf.low, conf.high, p.value) |>
+        dplyr::slice_head(n = 1)
+    } else {
+      log_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    }
+  } else {
+    log_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    log_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  }
 } else {
   log_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
   log_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
@@ -497,6 +529,7 @@ for (spec in km_specs) {
       event = ensure_binary_event(.data$event),
       stage = as.factor(.data$stage)
     ) |>
+    { if (identical(outname, "treatment_duration")) dplyr::mutate(., event = dplyr::if_else(.data$event == 0, 0L, 1L)) else . } |>
     dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
   # Log input audit for survival endpoints
   if (!exists(".surv_audit_initialized", inherits = FALSE)) {
@@ -537,21 +570,29 @@ drop_lin <- nrow(df_lin) - nrow(stats::na.omit(model.frame(y ~ stage, data = df_
 mod_lin <- tryCatch(stats::lm(y ~ stage, data = df_lin), error = function(e) NULL)
 lin_all <- if (!is.null(mod_lin)) extract_linear_effects(mod_lin, term = "stage") else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
 
-# Stage-specific subgroup summaries: means (intercept-only models per stage)
+# Stage-specific subgroup summaries: means via emmeans
 lin_levels <- levels(as.factor(df_lin$stage))
-if (length(lin_levels) >= 2) {
-  s0 <- dplyr::filter(df_lin, as.character(stage) == lin_levels[1])
-  s1 <- dplyr::filter(df_lin, as.character(stage) == lin_levels[2])
-  m0 <- tryCatch(stats::lm(y ~ 1, data = s0), error = function(e) NULL)
-  m1 <- tryCatch(stats::lm(y ~ 1, data = s1), error = function(e) NULL)
-  lin_s0 <- if (!is.null(m0)) {
-    tt <- broom::tidy(m0, conf.int = TRUE)
-    dplyr::transmute(dplyr::slice(tt, 1L), estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
-  } else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-  lin_s1 <- if (!is.null(m1)) {
-    tt <- broom::tidy(m1, conf.int = TRUE)
-    dplyr::transmute(dplyr::slice(tt, 1L), estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
-  } else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+if (!is.null(mod_lin) && length(lin_levels) >= 1 && requireNamespace("emmeans", quietly = TRUE)) {
+  eml <- try(emmeans::emmeans(mod_lin, ~ stage), silent = TRUE)
+  if (!inherits(eml, "try-error")) {
+    sm <- as.data.frame(summary(eml, infer = c(TRUE, TRUE)))
+    # sm: stage, emmean, lower.CL, upper.CL, p.value (vs 0 mean)
+    lin_s0 <- sm |>
+      dplyr::filter(as.character(.data$stage) == lin_levels[1]) |>
+      dplyr::transmute(estimate = .data$emmean, conf.low = .data$lower.CL, conf.high = .data$upper.CL, p.value = .data$p.value) |>
+      dplyr::slice_head(n = 1)
+    if (length(lin_levels) >= 2) {
+      lin_s1 <- sm |>
+        dplyr::filter(as.character(.data$stage) == lin_levels[2]) |>
+        dplyr::transmute(estimate = .data$emmean, conf.low = .data$lower.CL, conf.high = .data$upper.CL, p.value = .data$p.value) |>
+        dplyr::slice_head(n = 1)
+    } else {
+      lin_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    }
+  } else {
+    lin_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    lin_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  }
 } else {
   lin_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
   lin_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
@@ -597,8 +638,8 @@ main_rows <- list(
 summary_main_models <- dplyr::bind_rows(main_rows) |>
   dplyr::mutate(across(where(is.numeric), ~ round(.x, 4)))
 
-readr::write_csv(summary_main_models, file = "output/tables/summary_main_models.csv")
-if (requireNamespace("rio", quietly = TRUE)) rio::export(summary_main_models, "output/tables/summary_main_models.xlsx")
+rio::export(summary_main_models, "output/tables/summary_main_models.csv")
+rio::export(summary_main_models, "output/tables/summary_main_models.xlsx")
 message(" - Wrote output/tables/summary_main_models.csv")
 
 # Log PH checks
@@ -663,6 +704,7 @@ for (cv in covars) {
         stage = as.factor(.data$stage),
         x = coerce_predictor(x)
       ) |>
+      { if (identical(outname, "treatment_duration")) dplyr::mutate(., event = dplyr::if_else(.data$event == 0, 0L, 1L)) else . } |>
       dplyr::filter(!is.na(time), !is.na(event), !is.na(stage), !is.na(x))
     m_all <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage + x, data = d_surv, x = TRUE), error = function(e) NULL)
     m_int <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage * x, data = d_surv, x = TRUE), error = function(e) NULL)
@@ -717,8 +759,8 @@ summary_adjusted_models <- dplyr::bind_rows(adjusted_rows) |>
   dplyr::mutate(across(where(is.numeric), ~ round(.x, 4))) |>
   dplyr::relocate(outcome, covariate, p_all, effect_all, effect_all_ci, p_stage0, effect_stage0, effect_stage0_ci, p_stage1, effect_stage1, effect_stage1_ci)
 
-readr::write_csv(summary_adjusted_models, file = "output/tables/summary_adjusted_models.csv")
-if (requireNamespace("rio", quietly = TRUE)) rio::export(summary_adjusted_models, "output/tables/summary_adjusted_models.xlsx")
+rio::export(summary_adjusted_models, "output/tables/summary_adjusted_models.csv")
+rio::export(summary_adjusted_models, "output/tables/summary_adjusted_models.xlsx")
 message(" - Wrote output/tables/summary_adjusted_models.csv")
 
 ## 08) Session info & done -----------------------------------------------

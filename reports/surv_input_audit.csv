@@ -2,3 +2,6 @@ endpoint,n_total,n_complete,n_events,time_min,time_max
 time_to_next_treatment,45,43,34,1,78
 treatment_duration,45,11,0,4,135
 response_duration,45,43,21,1,130
+time_to_next_treatment,45,43,34,1,78
+treatment_duration,45,11,0,4,135
+response_duration,45,43,21,1,130
