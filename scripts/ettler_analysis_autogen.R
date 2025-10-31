@@ -230,6 +230,60 @@ fit_stage_specific_linear <- function(df, formula, stage_col = "stage_early", co
   res
 }
 
+# emmeans-based stage-specific effects without splitting data
+# - For numeric x: uses emtrends(~ stage, var = x)
+# - For factor x: uses emmeans(~ x | stage) with trt.vs.ctrl contrasts
+# - Logistic/Cox estimates are exponentiated (OR/HR); Linear left on original scale
+emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("logistic", "cox", "linear"), contrast_label = NULL) {
+  model_type <- match.arg(model_type)
+  stopifnot(stage_var %in% names(data), x_var %in% names(data))
+  x_is_factor <- is.factor(data[[x_var]])
+  if (!requireNamespace("emmeans", quietly = TRUE)) {
+    return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  }
+  if (!x_is_factor) {
+    tr <- try(emmeans::emtrends(model, specs = stats::as.formula(paste("~", stage_var)), var = x_var), silent = TRUE)
+    if (inherits(tr, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    td <- try(broom::tidy(tr, conf.int = TRUE), silent = TRUE)
+    if (inherits(td, "try-error")) {
+      s <- as.data.frame(summary(tr, infer = c(TRUE, TRUE)))
+      td <- tibble::tibble(!!stage_var := s[[stage_var]], estimate = s$trend, conf.low = s$lower.CL, conf.high = s$upper.CL, p.value = s$`p.value`)
+    }
+    if (!(stage_var %in% names(td))) names(td)[1] <- stage_var
+    if (model_type %in% c("logistic", "cox")) {
+      td <- td |>
+        dplyr::mutate(estimate = exp(.data$estimate), conf.low = exp(.data$conf.low), conf.high = exp(.data$conf.high))
+    }
+    return(td |>
+             dplyr::select(!!stage_var, estimate, conf.low, conf.high, p.value))
+  } else {
+    em <- try(emmeans::emmeans(model, specs = stats::as.formula(paste("~", x_var, "|", stage_var))), silent = TRUE)
+    if (inherits(em, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    cn <- try(emmeans::contrast(em, method = "trt.vs.ctrl", ref = 1), silent = TRUE)
+    if (inherits(cn, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    td <- broom::tidy(cn, conf.int = TRUE)
+    if (!is.null(contrast_label)) {
+      td <- dplyr::filter(td, stringr::str_detect(.data$contrast, paste0("^", contrast_label, "\\b|\\b", contrast_label, "\\b")))
+    }
+    if (stage_var %in% names(td)) {
+      td <- td |>
+        dplyr::group_by(.data[[stage_var]]) |>
+        dplyr::slice_head(n = 1) |>
+        dplyr::ungroup()
+    }
+    if (model_type %in% c("logistic", "cox")) {
+      td <- td |>
+        dplyr::mutate(estimate = exp(.data$estimate), conf.low = exp(.data$conf.low), conf.high = exp(.data$conf.high))
+    }
+    if (!(stage_var %in% names(td))) {
+      by_cols <- setdiff(names(td), c("contrast","estimate","std.error","statistic","df","p.value","conf.low","conf.high"))
+      if (length(by_cols) >= 1) names(td)[names(td) == by_cols[1]] <- stage_var
+    }
+    return(td |>
+             dplyr::select(!!stage_var, estimate, conf.low, conf.high, p.value))
+  }
+}
+
 ## 02) Validate inputs ----------------------------------------------------
 message("Validating expected input files...")
 invisible(tryCatch(check_and_fuzzy_path(template_rmd), error = function(e) stop(e)))
@@ -577,13 +631,20 @@ for (cv in covars) {
     dplyr::mutate(y = as.factor(y), x = coerce_predictor(x)) |>
     dplyr::filter(!is.na(y), !is.na(stage), !is.na(x))
   m_all <- tryCatch(stats::glm(y ~ stage + x, data = d_mod, family = stats::binomial()), error = function(e) NULL)
+  m_int <- tryCatch(stats::glm(y ~ stage * x, data = d_mod, family = stats::binomial()), error = function(e) NULL)
   contrast_label <- if (is.factor(d_mod$x)) pick_contrast_level(d_mod$x) else NULL
   eff_all <- if (!is.null(m_all)) extract_logistic_effects(m_all, term = "x", contrast_label = contrast_label) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-  # Stage splits
-  sp_log <- fit_stage_specific_logistic(d_mod |> dplyr::rename(stage_early = stage), formula = stats::as.formula("y ~ x"), stage_col = "stage_early", contrast_label = contrast_label)
-  nm_log <- names(sp_log)
-  s0 <- if (length(nm_log) >= 1 && !is.null(sp_log[[nm_log[1]]])) dplyr::slice(sp_log[[nm_log[1]]], 1L) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-  s1 <- if (length(nm_log) >= 2 && !is.null(sp_log[[nm_log[2]]])) dplyr::slice(sp_log[[nm_log[2]]], 1L) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  # Stage-specific via emmeans/emtrends
+  if (!is.null(m_int)) {
+    sp_log_emm <- emm_stage_effects(m_int, d_mod, stage_var = "stage", x_var = "x", model_type = "logistic", contrast_label = contrast_label)
+  } else {
+    sp_log_emm <- tibble::tibble(stage = factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  }
+  st_levels <- levels(as.factor(d_mod$stage))
+  s0 <- sp_log_emm |> dplyr::filter(as.character(.data$stage) == st_levels[1]) |> dplyr::slice_head(n = 1)
+  s1 <- sp_log_emm |> dplyr::filter(length(st_levels) >= 2, as.character(.data$stage) == st_levels[2]) |> dplyr::slice_head(n = 1)
+  if (nrow(s0) == 0) s0 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+  if (nrow(s1) == 0) s1 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
   adjusted_rows[[length(adjusted_rows) + 1]] <- tibble::tibble(
     outcome = "response_achieved", covariate = cv,
     p_all = eff_all$p.value, effect_all = eff_all$estimate, effect_all_ci = fmt_ci(eff_all$conf.low, eff_all$conf.high),
@@ -604,12 +665,19 @@ for (cv in covars) {
       ) |>
       dplyr::filter(!is.na(time), !is.na(event), !is.na(stage), !is.na(x))
     m_all <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage + x, data = d_surv, x = TRUE), error = function(e) NULL)
+    m_int <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage * x, data = d_surv, x = TRUE), error = function(e) NULL)
     contrast_label <- if (is.factor(d_surv$x)) pick_contrast_level(d_surv$x) else NULL
     eff_all <- if (!is.null(m_all)) extract_cox_effects(m_all, term = "x", contrast_label = contrast_label) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-    sp_cox <- fit_stage_specific_cox(d_surv |> dplyr::rename(stage_early = stage), time_col = "time", event_col = "event", covar = "x", stage_col = "stage_early", contrast_label = contrast_label)
-    nm_cox <- names(sp_cox)
-    s0 <- if (length(nm_cox) >= 1 && !is.null(sp_cox[[nm_cox[1]]])) dplyr::slice(sp_cox[[nm_cox[1]]], 1L) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-    s1 <- if (length(nm_cox) >= 2 && !is.null(sp_cox[[nm_cox[2]]])) dplyr::slice(sp_cox[[nm_cox[2]]], 1L) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    if (!is.null(m_int)) {
+      sp_cox_emm <- emm_stage_effects(m_int, d_surv, stage_var = "stage", x_var = "x", model_type = "cox", contrast_label = contrast_label)
+    } else {
+      sp_cox_emm <- tibble::tibble(stage = factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    }
+    st_levels <- levels(as.factor(d_surv$stage))
+    s0 <- sp_cox_emm |> dplyr::filter(as.character(.data$stage) == st_levels[1]) |> dplyr::slice_head(n = 1)
+    s1 <- sp_cox_emm |> dplyr::filter(length(st_levels) >= 2, as.character(.data$stage) == st_levels[2]) |> dplyr::slice_head(n = 1)
+    if (nrow(s0) == 0) s0 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+    if (nrow(s1) == 0) s1 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
     adjusted_rows[[length(adjusted_rows) + 1]] <- tibble::tibble(
       outcome = outname, covariate = cv,
       p_all = eff_all$p.value, effect_all = eff_all$estimate, effect_all_ci = fmt_ci(eff_all$conf.low, eff_all$conf.high),
@@ -624,12 +692,19 @@ for (cv in covars) {
     dplyr::mutate(x = coerce_predictor(x)) |>
     dplyr::filter(!is.na(y), y > 0, !is.na(stage), !is.na(x))
   m_all <- tryCatch(stats::lm(y ~ stage + x, data = d_lin), error = function(e) NULL)
+  m_int <- tryCatch(stats::lm(y ~ stage * x, data = d_lin), error = function(e) NULL)
   contrast_label <- if (is.factor(d_lin$x)) pick_contrast_level(d_lin$x) else NULL
   eff_all <- if (!is.null(m_all)) extract_linear_effects(m_all, term = "x", contrast_label = contrast_label) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-  sp_lin <- fit_stage_specific_linear(d_lin |> dplyr::rename(stage_early = stage), formula = stats::as.formula("y ~ x"), stage_col = "stage_early", contrast_label = contrast_label)
-  nm_lin <- names(sp_lin)
-  s0 <- if (length(nm_lin) >= 1 && !is.null(sp_lin[[nm_lin[1]]])) dplyr::slice(sp_lin[[nm_lin[1]]], 1L) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
-  s1 <- if (length(nm_lin) >= 2 && !is.null(sp_lin[[nm_lin[2]]])) dplyr::slice(sp_lin[[nm_lin[2]]], 1L) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  if (!is.null(m_int)) {
+    sp_lin_emm <- emm_stage_effects(m_int, d_lin, stage_var = "stage", x_var = "x", model_type = "linear", contrast_label = contrast_label)
+  } else {
+    sp_lin_emm <- tibble::tibble(stage = factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  }
+  st_levels <- levels(as.factor(d_lin$stage))
+  s0 <- sp_lin_emm |> dplyr::filter(as.character(.data$stage) == st_levels[1]) |> dplyr::slice_head(n = 1)
+  s1 <- sp_lin_emm |> dplyr::filter(length(st_levels) >= 2, as.character(.data$stage) == st_levels[2]) |> dplyr::slice_head(n = 1)
+  if (nrow(s0) == 0) s0 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+  if (nrow(s1) == 0) s1 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
   adjusted_rows[[length(adjusted_rows) + 1]] <- tibble::tibble(
     outcome = "response_time_to", covariate = cv,
     p_all = eff_all$p.value, effect_all = eff_all$estimate, effect_all_ci = fmt_ci(eff_all$conf.low, eff_all$conf.high),
