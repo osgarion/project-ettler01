@@ -189,9 +189,9 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
       s <- as.data.frame(summary(tr, infer = c(TRUE, TRUE)))
       td <- tibble::tibble(!!stage_var := s[[stage_var]], estimate = s$trend, conf.low = s$lower.CL, conf.high = s$upper.CL, p.value = s$`p.value`)
     }
-    # Normalize column names
+    # Normalize column names: broom::tidy(emtrends) may produce e.g. "x.trend"
     if (!("estimate" %in% names(td))) {
-      alt <- intersect(c("emmean", "emtrend", "trend"), names(td))
+      alt <- intersect(c("estimate", "emmean", "emtrend", "trend", "x.trend"), names(td))
       if (length(alt) >= 1) td <- dplyr::rename(td, estimate = !!rlang::sym(alt[1]))
     }
     if (!("conf.low" %in% names(td)) && ("lower.CL" %in% names(td))) td <- dplyr::rename(td, conf.low = .data$lower.CL)
@@ -209,6 +209,13 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
     cn <- try(emmeans::contrast(em, method = "trt.vs.ctrl", ref = 1), silent = TRUE)
     if (inherits(cn, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
     td <- broom::tidy(cn, conf.int = TRUE)
+    # Normalize column names for factor contrasts; occasionally tidy may return other names
+    if (!("estimate" %in% names(td))) {
+      alt <- intersect(c("estimate", "ratio", "odds.ratio", "emmean", "emtrend", "trend", "x.trend"), names(td))
+      if (length(alt) >= 1) td <- dplyr::rename(td, estimate = !!rlang::sym(alt[1]))
+    }
+    if (!("conf.low" %in% names(td)) && ("lower.CL" %in% names(td))) td <- dplyr::rename(td, conf.low = .data$lower.CL)
+    if (!("conf.high" %in% names(td)) && ("upper.CL" %in% names(td))) td <- dplyr::rename(td, conf.high = .data$upper.CL)
     if (!is.null(contrast_label)) {
       td <- dplyr::filter(td, stringr::str_detect(.data$contrast, paste0("^", contrast_label, "\\b|\\b", contrast_label, "\\b")))
     }
