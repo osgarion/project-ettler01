@@ -153,26 +153,6 @@ extract_linear_effects <- function(model, term, contrast_label = NULL) {
 }
 
 # Stage-specific wrappers (fit separate models by stage)
-fit_stage_specific_logistic <- function(df, formula, stage_col = "stage_early", contrast_label = NULL) {
-  stopifnot(stage_col %in% names(df))
-  df <- df |>
-    dplyr::filter(!is.na(.data[[stage_col]]))
-  st_levels <- sort(unique(df[[stage_col]]))
-  res <- list()
-  for (s in st_levels) {
-    d_sub <- df[df[[stage_col]] == s, , drop = FALSE]
-    dropped <- nrow(df) - nrow(stats::na.omit(model.frame(formula, data = d_sub)))
-    if (nrow(d_sub) < 5) {
-      res[[as.character(s)]] <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_, n = nrow(d_sub), dropped = dropped)
-      next
-    }
-    m <- stats::glm(formula, data = d_sub, family = stats::binomial())
-    term <- setdiff(attr(stats::terms(formula), "term.labels"), "(Intercept)")[1]
-    eff <- tryCatch(extract_logistic_effects(m, term, contrast_label = contrast_label), error = function(e) tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
-    res[[as.character(s)]] <- dplyr::bind_cols(eff, tibble::tibble(n = nrow(d_sub), dropped = dropped))
-  }
-  res
-}
 
 # Ensure a survival event vector is binary (0/1) numeric
 ensure_binary_event <- function(v) {
@@ -188,47 +168,7 @@ ensure_binary_event <- function(v) {
   suppressWarnings(as.integer(as.numeric(v) > 0))
 }
 
-fit_stage_specific_cox <- function(df, time_col, event_col, covar, stage_col = "stage_early", contrast_label = NULL) {
-  stopifnot(all(c(time_col, event_col, covar, stage_col) %in% names(df)))
-  df <- df |>
-    dplyr::filter(!is.na(.data[[stage_col]]))
-  st_levels <- sort(unique(df[[stage_col]]))
-  res <- list()
-  for (s in st_levels) {
-    d_sub <- df[df[[stage_col]] == s, , drop = FALSE]
-    mf <- model.frame(stats::as.formula(sprintf("survival::Surv(%s, %s) ~ %s", time_col, event_col, covar)), data = d_sub)
-    dropped <- nrow(d_sub) - nrow(stats::na.omit(mf))
-    if (nrow(mf) < 5) {
-      res[[as.character(s)]] <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_, n = nrow(d_sub), dropped = dropped)
-      next
-    }
-    m <- survival::coxph(stats::as.formula(sprintf("survival::Surv(%s, %s) ~ %s", time_col, event_col, covar)), data = d_sub, x = TRUE)
-    eff <- tryCatch(extract_cox_effects(m, covar, contrast_label = contrast_label), error = function(e) tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
-    res[[as.character(s)]] <- dplyr::bind_cols(eff, tibble::tibble(n = nrow(d_sub), dropped = dropped))
-  }
-  res
-}
 
-fit_stage_specific_linear <- function(df, formula, stage_col = "stage_early", contrast_label = NULL) {
-  stopifnot(stage_col %in% names(df))
-  df <- df |>
-    dplyr::filter(!is.na(.data[[stage_col]]))
-  st_levels <- sort(unique(df[[stage_col]]))
-  res <- list()
-  for (s in st_levels) {
-    d_sub <- df[df[[stage_col]] == s, , drop = FALSE]
-    dropped <- nrow(d_sub) - nrow(stats::na.omit(model.frame(formula, data = d_sub)))
-    if (nrow(d_sub) < 5) {
-      res[[as.character(s)]] <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_, n = nrow(d_sub), dropped = dropped)
-      next
-    }
-    m <- stats::lm(formula, data = d_sub)
-    term <- setdiff(attr(stats::terms(formula), "term.labels"), "(Intercept)")[1]
-    eff <- tryCatch(extract_linear_effects(m, term, contrast_label = contrast_label), error = function(e) tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
-    res[[as.character(s)]] <- dplyr::bind_cols(eff, tibble::tibble(n = nrow(d_sub), dropped = dropped))
-  }
-  res
-}
 
 # emmeans-based stage-specific effects without splitting data
 # - For numeric x: uses emtrends(~ stage, var = x)
@@ -291,6 +231,62 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
   }
 }
 
+# Plot helper: scatter + per-stage trend lines + p-values of slopes within stage
+plot_stage_trends <- function(df, y, x, stage_col = "stage_early", y_positive_only = FALSE, out_dir = "output/figures") {
+  stopifnot(y %in% names(df), x %in% names(df), stage_col %in% names(df))
+  d <- df |>
+    dplyr::select(y = .data[[y]], x = .data[[x]], stage = .data[[stage_col]]) |>
+    dplyr::mutate(stage = as.factor(stage)) |>
+    { if (y_positive_only) dplyr::filter(., !is.na(y), y > 0, !is.na(x), !is.na(stage)) else dplyr::filter(., !is.na(y), !is.na(x), !is.na(stage)) }
+  if (nrow(d) < 5 || !is.numeric(d$x) || !is.numeric(d$y)) return(invisible(NULL))
+  m <- stats::lm(y ~ stage * x, data = d)
+  tr <- try(emmeans::emtrends(m, specs = ~ stage, var = "x"), silent = TRUE)
+  lbls <- NULL
+  if (!inherits(tr, "try-error")) {
+    td <- as.data.frame(summary(tr, infer = c(TRUE, TRUE)))
+    # Expect columns: stage, x.trend or emtrend/trend, p.value
+    est_col <- intersect(c("emtrend","x.trend","trend","emmean"), names(td))
+    if (length(est_col) == 0) est_col <- "emtrend"
+    lbls <- td |>
+      dplyr::mutate(stage = as.character(.data$stage),
+                    lab = sprintf("p(slope | stage=%s) = %s", stage, format.pval(.data$p.value, digits = 3, eps = 1e-4))) |>
+      dplyr::select(stage, lab)
+    # Difference of slopes (interaction) p-value
+    diff_p <- try(broom::tidy(emmeans::contrast(tr, method = "pairwise")), silent = TRUE)
+    if (!inherits(diff_p, "try-error") && nrow(diff_p) >= 1) {
+      p_int <- format.pval(diff_p$p.value[1], digits = 3, eps = 1e-4)
+      lbls <- dplyr::bind_rows(lbls, tibble::tibble(stage = "_diff_", lab = sprintf("p(diff slopes) = %s", p_int)))
+    }
+  }
+  rngx <- range(d$x, na.rm = TRUE); rngy <- range(d$y, na.rm = TRUE)
+  x_pos <- c(rngx[1] + 0.02*diff(rngx), rngx[2] - 0.3*diff(rngx))
+  y_pos <- rngy[2] - c(0.05, 0.12) * diff(rngy)
+  p <- ggplot2::ggplot(d, ggplot2::aes(x = x, y = y, color = stage)) +
+    ggplot2::geom_point(alpha = 0.6) +
+    ggplot2::geom_smooth(method = "lm", se = TRUE, formula = y ~ x) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::labs(x = x, y = y, color = "stage")
+  if (!is.null(lbls) && nrow(lbls) >= 1) {
+    # Try place labels for first two stages
+    st_lev <- levels(d$stage)
+    if (length(st_lev) >= 1) {
+      l0 <- lbls$lab[lbls$stage == st_lev[1]]
+      if (length(l0)) p <- p + ggplot2::annotate("text", x = x_pos[1], y = y_pos[1], label = l0, hjust = 0, vjust = 1, size = 3.5)
+    }
+    if (length(st_lev) >= 2) {
+      l1 <- lbls$lab[lbls$stage == st_lev[2]]
+      if (length(l1)) p <- p + ggplot2::annotate("text", x = x_pos[2], y = y_pos[2], label = l1, hjust = 0, vjust = 1, size = 3.5)
+    }
+    # place interaction p-value (if present)
+    li <- lbls$lab[lbls$stage == "_diff_"]
+    if (length(li)) p <- p + ggplot2::annotate("text", x = rngx[1] + 0.02*diff(rngx), y = rngy[2] - 0.20*diff(rngy), label = li, hjust = 0, vjust = 1, size = 3.5)
+  }
+  dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  out <- file.path(out_dir, sprintf("trend_%s_by_%s_by_stage.tiff", y, x))
+  ggplot2::ggsave(out, p, width = 8, height = 6, dpi = 300, device = "tiff", compression = "lzw")
+  invisible(out)
+}
+
 ## 02) Validate inputs ----------------------------------------------------
 message("Validating expected input files...")
 invisible(tryCatch(check_and_fuzzy_path(template_rmd), error = function(e) stop(e)))
@@ -341,7 +337,9 @@ if (!exists("d04")) {
 
 # Column hygiene and canonical names
 df <- d04 |>
-  janitor::clean_names()
+  janitor::clean_names() |> 
+  mutate(discontinuation_reason = if_else(discontinuation_reason == 0, 0, 1),
+         sex = if_else(sex == "M",1,0))
 
 # Ensure key variables exist or map aliases
 alias_map <- list(
@@ -387,6 +385,12 @@ if (is.factor(df[[col_stage]]) && "0" %in% levels(df[[col_stage]])) {
   df[[col_stage]] <- factor(df[[col_stage]])
 }
 
+# Ensure discontinuation_reason is binary (0/1) even if originally character/factor with various levels
+if (!is.null(col_event_discont) && col_event_discont %in% names(df)) {
+  dr_num <- suppressWarnings(readr::parse_number(as.character(df[[col_event_discont]])))
+  df[[col_event_discont]] <- dplyr::if_else(dr_num == 0, 0L, 1L, missing = NA_integer_)
+}
+
 ## 05) EDA ---------------------------------------------------------------
 message("Running EDA and saving figures to 'output/figures/'...")
 
@@ -410,7 +414,7 @@ if (length(num_cols) > 0) {
     facet_wrap(~ var, scales = "free", ncol = 3) +
     labs(title = "Numeric distributions") +
     { if ("sjPlot" %in% .packages(all.available = TRUE)) sjPlot::theme_sjplot2() else theme_minimal(base_size = 12) }
-  ggsave("output/figures/eda_numeric_distributions.png", p_num, width = 10, height = 7, dpi = 150)
+  ggsave("output/figures/eda_numeric_distributions.tiff", p_num, width = 10, height = 7, dpi = 300, device = "tiff", compression = "lzw")
 }
 
 # Distributions: categorical (styled like project barplots)
@@ -437,7 +441,7 @@ if (length(cat_cols) > 0) {
     { if ("sjPlot" %in% .packages(all.available = TRUE)) sjPlot::theme_sjplot2() else theme_minimal(base_size = 12) } +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     labs(title = "Categorical distributions (proportions)", x = NULL, y = "Proportion", fill = "Level")
-  ggsave("output/figures/eda_categorical_distributions.png", p_cat, width = 12, height = 8, dpi = 150)
+  ggsave("output/figures/eda_categorical_distributions.tiff", p_cat, width = 12, height = 8, dpi = 300, device = "tiff", compression = "lzw")
 }
 
 # Survival KM previews by stage_early
@@ -456,7 +460,7 @@ for (sp in km_specs) {
       event = ensure_binary_event(.data$event),
       stage = as.factor(.data$stage)
     ) |>
-    (\(d) if (identical(sp$label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d) |>
+    (\(d) if (identical(sp$label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
     dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
   if (nrow(df_km) > 0) {
     f <- survival::survfit(survival::Surv(time, event) ~ stage, data = df_km)
@@ -469,8 +473,8 @@ for (sp in km_specs) {
       legend.title = "Stage",
       title = paste0("KM: ", sp$label)
     )
-    out <- file.path("output/figures", paste0("eda_km_", sp$label, ".png"))
-    ggplot2::ggsave(out, p$plot, width = 8, height = 6, dpi = 150)
+    out <- file.path("output/figures", paste0("eda_km_", sp$label, ".tiff"))
+    ggplot2::ggsave(out, p$plot, width = 8, height = 6, dpi = 300, device = "tiff", compression = "lzw")
   }
 }
 
@@ -486,26 +490,37 @@ drop_log <- nrow(df_log) - nrow(stats::na.omit(model.frame(y ~ stage, data = df_
 mod_log <- tryCatch(stats::glm(y ~ stage, data = df_log, family = stats::binomial()), error = function(e) NULL)
 log_all <- if (!is.null(mod_log)) extract_logistic_effects(mod_log, term = "stage") else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
 
-# Stage-specific subgroup summaries: odds via emmeans (on logit scale -> odds)
+# Stage-specific subgroup summaries via emmeans + contrast (identity) → odds per stage
 log_levels <- levels(as.factor(df_log$stage))
 if (!is.null(mod_log) && length(log_levels) >= 1 && requireNamespace("emmeans", quietly = TRUE)) {
   ems <- try(emmeans::emmeans(mod_log, ~ stage), silent = TRUE)
   if (!inherits(ems, "try-error")) {
-    sm <- as.data.frame(summary(ems, infer = c(TRUE, TRUE)))
-    # sm has columns: stage, emmean, lower.CL, upper.CL on logit; convert to odds
-    sm <- sm |>
-      dplyr::mutate(estimate = exp(.data$emmean), conf.low = exp(.data$lower.CL), conf.high = exp(.data$upper.CL), p.value = .data$p.value)
-    # Extract first two levels if present
-    log_s0 <- sm |>
-      dplyr::filter(as.character(.data$stage) == log_levels[1]) |>
-      dplyr::select(estimate, conf.low, conf.high, p.value) |>
-      dplyr::slice_head(n = 1)
-    if (length(log_levels) >= 2) {
-      log_s1 <- sm |>
-        dplyr::filter(as.character(.data$stage) == log_levels[2]) |>
-        dplyr::select(estimate, conf.low, conf.high, p.value) |>
+    contr_list <- setNames(
+      lapply(seq_along(log_levels), function(i) { v <- rep(0, length(log_levels)); v[i] <- 1; v }),
+      log_levels
+    )
+    cn <- try(emmeans::contrast(ems, method = contr_list), silent = TRUE)
+    if (!inherits(cn, "try-error")) {
+      td <- broom::tidy(cn, conf.int = TRUE) |>
+        dplyr::transmute(stage = .data$contrast,
+                          estimate = exp(.data$estimate),
+                          conf.low = exp(.data$conf.low),
+                          conf.high = exp(.data$conf.high),
+                          p.value = .data$p.value)
+      log_s0 <- td |>
+        dplyr::filter(.data$stage == log_levels[1]) |>
+        dplyr::select(-stage) |>
         dplyr::slice_head(n = 1)
+      if (length(log_levels) >= 2) {
+        log_s1 <- td |>
+          dplyr::filter(.data$stage == log_levels[2]) |>
+          dplyr::select(-stage) |>
+          dplyr::slice_head(n = 1)
+      } else {
+        log_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+      }
     } else {
+      log_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
       log_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
     }
   } else {
@@ -516,6 +531,7 @@ if (!is.null(mod_log) && length(log_levels) >= 1 && requireNamespace("emmeans", 
   log_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
   log_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
 }
+
 
 # Cox PH: three endpoints Surv(time, event) ~ stage_early
 cox_main <- list()
@@ -529,7 +545,7 @@ for (spec in km_specs) {
       event = ensure_binary_event(.data$event),
       stage = as.factor(.data$stage)
     ) |>
-    { if (identical(outname, "treatment_duration")) dplyr::mutate(., event = dplyr::if_else(.data$event == 0, 0L, 1L)) else . } |>
+    (\(d) if (identical(outname, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
     dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
   # Log input audit for survival endpoints
   if (!exists(".surv_audit_initialized", inherits = FALSE)) {
@@ -570,23 +586,37 @@ drop_lin <- nrow(df_lin) - nrow(stats::na.omit(model.frame(y ~ stage, data = df_
 mod_lin <- tryCatch(stats::lm(y ~ stage, data = df_lin), error = function(e) NULL)
 lin_all <- if (!is.null(mod_lin)) extract_linear_effects(mod_lin, term = "stage") else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
 
-# Stage-specific subgroup summaries: means via emmeans
+# Stage-specific subgroup summaries via emmeans + contrast (identity) → means per stage
 lin_levels <- levels(as.factor(df_lin$stage))
 if (!is.null(mod_lin) && length(lin_levels) >= 1 && requireNamespace("emmeans", quietly = TRUE)) {
   eml <- try(emmeans::emmeans(mod_lin, ~ stage), silent = TRUE)
   if (!inherits(eml, "try-error")) {
-    sm <- as.data.frame(summary(eml, infer = c(TRUE, TRUE)))
-    # sm: stage, emmean, lower.CL, upper.CL, p.value (vs 0 mean)
-    lin_s0 <- sm |>
-      dplyr::filter(as.character(.data$stage) == lin_levels[1]) |>
-      dplyr::transmute(estimate = .data$emmean, conf.low = .data$lower.CL, conf.high = .data$upper.CL, p.value = .data$p.value) |>
-      dplyr::slice_head(n = 1)
-    if (length(lin_levels) >= 2) {
-      lin_s1 <- sm |>
-        dplyr::filter(as.character(.data$stage) == lin_levels[2]) |>
-        dplyr::transmute(estimate = .data$emmean, conf.low = .data$lower.CL, conf.high = .data$upper.CL, p.value = .data$p.value) |>
+    contr_list <- setNames(
+      lapply(seq_along(lin_levels), function(i) { v <- rep(0, length(lin_levels)); v[i] <- 1; v }),
+      lin_levels
+    )
+    cn <- try(emmeans::contrast(eml, method = contr_list), silent = TRUE)
+    if (!inherits(cn, "try-error")) {
+      td <- broom::tidy(cn, conf.int = TRUE) |>
+        dplyr::transmute(stage = .data$contrast,
+                          estimate = .data$estimate,
+                          conf.low = .data$conf.low,
+                          conf.high = .data$conf.high,
+                          p.value = .data$p.value)
+      lin_s0 <- td |>
+        dplyr::filter(.data$stage == lin_levels[1]) |>
+        dplyr::select(-stage) |>
         dplyr::slice_head(n = 1)
+      if (length(lin_levels) >= 2) {
+        lin_s1 <- td |>
+          dplyr::filter(.data$stage == lin_levels[2]) |>
+          dplyr::select(-stage) |>
+          dplyr::slice_head(n = 1)
+      } else {
+        lin_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+      }
     } else {
+      lin_s0 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
       lin_s1 <- tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
     }
   } else {
@@ -641,6 +671,41 @@ summary_main_models <- dplyr::bind_rows(main_rows) |>
 rio::export(summary_main_models, "output/tables/summary_main_models.csv")
 rio::export(summary_main_models, "output/tables/summary_main_models.xlsx")
 message(" - Wrote output/tables/summary_main_models.csv")
+
+# Post-hoc tables consistent with global questions (pairwise contrasts)
+if (!is.null(mod_log) && requireNamespace("emmeans", quietly = TRUE)) {
+  em <- try(emmeans::emmeans(mod_log, ~ stage), silent = TRUE)
+  if (!inherits(em, "try-error")) {
+    cn <- try(emmeans::contrast(em, method = "pairwise"), silent = TRUE)
+    if (!inherits(cn, "try-error")) {
+      td <- broom::tidy(cn, conf.int = TRUE) |>
+        dplyr::transmute(contrast = .data$contrast,
+                         OR = exp(.data$estimate),
+                         conf.low = exp(.data$conf.low),
+                         conf.high = exp(.data$conf.high),
+                         p.value = .data$p.value)
+      rio::export(td, "output/tables/posthoc_main_logistic_stage_pairwise.csv")
+      rio::export(td, "output/tables/posthoc_main_logistic_stage_pairwise.xlsx")
+    }
+  }
+}
+
+if (!is.null(mod_lin) && requireNamespace("emmeans", quietly = TRUE)) {
+  em <- try(emmeans::emmeans(mod_lin, ~ stage), silent = TRUE)
+  if (!inherits(em, "try-error")) {
+    cn <- try(emmeans::contrast(em, method = "pairwise"), silent = TRUE)
+    if (!inherits(cn, "try-error")) {
+      td <- broom::tidy(cn, conf.int = TRUE) |>
+        dplyr::transmute(contrast = .data$contrast,
+                         estimate = .data$estimate,
+                         conf.low = .data$conf.low,
+                         conf.high = .data$conf.high,
+                         p.value = .data$p.value)
+      rio::export(td, "output/tables/posthoc_main_linear_stage_pairwise.csv")
+      rio::export(td, "output/tables/posthoc_main_linear_stage_pairwise.xlsx")
+    }
+  }
+}
 
 # Log PH checks
 if (length(ph_flags)) {
@@ -704,7 +769,7 @@ for (cv in covars) {
         stage = as.factor(.data$stage),
         x = coerce_predictor(x)
       ) |>
-      { if (identical(outname, "treatment_duration")) dplyr::mutate(., event = dplyr::if_else(.data$event == 0, 0L, 1L)) else . } |>
+      (\(d) if (identical(outname, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
       dplyr::filter(!is.na(time), !is.na(event), !is.na(stage), !is.na(x))
     m_all <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage + x, data = d_surv, x = TRUE), error = function(e) NULL)
     m_int <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage * x, data = d_surv, x = TRUE), error = function(e) NULL)
@@ -753,6 +818,10 @@ for (cv in covars) {
     p_stage0 = s0$p.value, effect_stage0 = s0$estimate, effect_stage0_ci = fmt_ci(s0$conf.low, s0$conf.high),
     p_stage1 = s1$p.value, effect_stage1 = s1$estimate, effect_stage1_ci = fmt_ci(s1$conf.low, s1$conf.high)
   )
+  # Auto-plot for numeric predictors: y vs x by stage with per-stage slope p-values
+  if (is.numeric(d_lin$x)) {
+    try(plot_stage_trends(df, y = col_response_time_to, x = cv, stage_col = col_stage, y_positive_only = TRUE), silent = TRUE)
+  }
 }
 
 summary_adjusted_models <- dplyr::bind_rows(adjusted_rows) |>
