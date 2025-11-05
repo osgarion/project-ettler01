@@ -129,12 +129,10 @@ summary_main_models_v2 <- summary_main_models |>
     effect_stage1_ci = ifelse(.data$outcome %in% km_labels, .data$median_stage1_ci, .data$effect_stage1_ci)
   )
 
-rio::export(summary_main_models_v2, "output/tables/main/summary_main_models_v2.csv")
 rio::export(summary_main_models_v2, "output/tables/main/summary_main_models_v2.xlsx")
-message(" - Wrote output/tables/main/summary_main_models_v2.csv")
+message(" - Wrote output/tables/main/summary_main_models_v2.xlsx")
 
 if (exists("summary_adjusted_models")) {
-  try(rio::export(summary_adjusted_models, "output/tables/adjusted/summary_adjusted_models.csv"), silent = TRUE)
   try(rio::export(summary_adjusted_models, "output/tables/adjusted/summary_adjusted_models.xlsx"), silent = TRUE)
 }
 
@@ -154,8 +152,9 @@ if (length(num_cols) >= 2 && requireNamespace("corrplot", quietly = TRUE)) {
     # fallback: p-values not computed
     p <- matrix(NA_real_, nrow = ncol(mat), ncol = ncol(mat), dimnames = dimnames(r))
   }
-  rio::export(as.data.frame(r), "output/tables/eda_corr_spearman_v2.csv")
-  rio::export(as.data.frame(p), "output/tables/eda_corr_pvalues_v2.csv")
+  # Export correlation matrices to a single Excel workbook (no CSVs)
+  rio::export(list(Spearman_R = as.data.frame(r), P_values = as.data.frame(p)),
+              "output/tables/eda_corr_spearman_v2.xlsx")
   col_pal <- grDevices::colorRampPalette(c("#2166ac", "#f7f7f7", "#b2182b")) # blue -> white -> red
   grDevices::tiff("output/figures/eda_corrplot_spearman_v2.tiff", width = 2400, height = 2000, res = 300, compression = "lzw")
   corrplot::corrplot(r, method = "color", type = "lower", tl.col = "black", tl.srt = 45,
@@ -209,7 +208,7 @@ if (exists("col_stage") && col_stage %in% names(df)) {
   }
   if (length(res)) {
     tab <- dplyr::bind_rows(res)
-    rio::export(tab, "output/tables/eda_factor_vs_stage_tests_v2.csv")
+    rio::export(tab, "output/tables/eda_factor_vs_stage_tests_v2.xlsx")
   }
 }
 
@@ -313,7 +312,6 @@ save_adjusted_plot <- function(row) {
 dir.create("output/tables/eda", showWarnings = FALSE, recursive = TRUE)
 if (requireNamespace("skimr", quietly = TRUE)) {
   sk <- skimr::skim(df)
-  try(rio::export(as.data.frame(sk), "output/tables/eda/skimr_summary_v2.csv"), silent = TRUE)
   try(rio::export(as.data.frame(sk), "output/tables/eda/skimr_summary_v2.xlsx"), silent = TRUE)
 }
 
@@ -392,4 +390,4 @@ if (exists("summary_adjusted_models")) {
   invisible(purrr::pwalk(summary_adjusted_models, save_adjusted_plot))
 }
 
-message("v2 completed. Key additional outputs:\n - output/tables/summary_main_models_v2.csv\n - output/figures/eda_corrplot_spearman_v2.tiff\n - output/tables/eda_factor_vs_stage_tests_v2.csv\n - output/figures/mainplot_*_v2.tiff\n - output/figures/adjplot_*_v2.tiff")
+message("v2 completed. Key additional outputs:\n - output/tables/main/summary_main_models_v2.xlsx\n - output/tables/eda/skimr_summary_v2.xlsx\n - output/tables/eda_corr_spearman_v2.xlsx\n - output/tables/eda_factor_vs_stage_tests_v2.xlsx\n - output/figures/eda_corrplot_spearman_v2.tiff\n - output/figures/main/mainplot_*_v2.tiff\n - output/figures/adjusted/adjplot_*_v2.tiff")
