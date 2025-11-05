@@ -33,8 +33,17 @@ suppressPackageStartupMessages({
 set.seed(123)
 
 # Paths (template and helper exist only for validation/context)
-template_rmd <- "reports/ettler_project_03-c.Rmd"
-helper_script <- "scripts/Script_project_ettler_03.R"
+# Make robust to source(..., chdir = TRUE) by trying both current and parent
+resolve_proj_path <- function(path) {
+  if (file.exists(path)) return(normalizePath(path, winslash = "/", mustWork = FALSE))
+  up <- file.path("..", path)
+  if (file.exists(up)) return(normalizePath(up, winslash = "/", mustWork = FALSE))
+  # fall back to fuzzy hint
+  check_and_fuzzy_path(path)
+}
+
+template_rmd <- resolve_proj_path("reports/ettler_project_03-c.Rmd")
+helper_script <- resolve_proj_path("scripts/Script_project_ettler_03.R")
 
 # Output dirs per spec
 dir.create("output/figures", showWarnings = FALSE, recursive = TRUE)
@@ -197,6 +206,10 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
     if (!("conf.low" %in% names(td)) && ("lower.CL" %in% names(td))) td <- dplyr::rename(td, conf.low = .data$lower.CL)
     if (!("conf.high" %in% names(td)) && ("upper.CL" %in% names(td))) td <- dplyr::rename(td, conf.high = .data$upper.CL)
     if (!(stage_var %in% names(td))) names(td)[1] <- stage_var
+    # Ensure required columns exist to avoid mutate errors
+    for (nm in c("estimate","conf.low","conf.high","p.value")) {
+      if (!(nm %in% names(td))) td[[nm]] <- NA_real_
+    }
     if (model_type %in% c("logistic", "cox")) {
       td <- td |>
         dplyr::mutate(estimate = exp(.data$estimate), conf.low = exp(.data$conf.low), conf.high = exp(.data$conf.high))
@@ -225,6 +238,10 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
         dplyr::slice_head(n = 1) |>
         dplyr::ungroup()
     }
+    # Ensure required columns exist to avoid mutate errors
+    for (nm in c("estimate","conf.low","conf.high","p.value")) {
+      if (!(nm %in% names(td))) td[[nm]] <- NA_real_
+    }
     if (model_type %in% c("logistic", "cox")) {
       td <- td |>
         dplyr::mutate(estimate = exp(.data$estimate), conf.low = exp(.data$conf.low), conf.high = exp(.data$conf.high))
@@ -241,10 +258,10 @@ emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("log
 # Plot helper: scatter + per-stage trend lines + p-values of slopes within stage
 plot_stage_trends <- function(df, y, x, stage_col = "stage_early", y_positive_only = FALSE, out_dir = "output/figures") {
   stopifnot(y %in% names(df), x %in% names(df), stage_col %in% names(df))
-  d <- df |>
-    dplyr::select(y = .data[[y]], x = .data[[x]], stage = .data[[stage_col]]) |>
-    dplyr::mutate(stage = as.factor(stage)) |>
-    { if (y_positive_only) dplyr::filter(., !is.na(y), y > 0, !is.na(x), !is.na(stage)) else dplyr::filter(., !is.na(y), !is.na(x), !is.na(stage)) }
+    d <- df |>
+      dplyr::select(y = .data[[y]], x = .data[[x]], stage = .data[[stage_col]]) |>
+      dplyr::mutate(stage = as.factor(stage)) |>
+      (\(d) if (y_positive_only) dplyr::filter(d, !is.na(y), y > 0, !is.na(x), !is.na(stage)) else dplyr::filter(d, !is.na(y), !is.na(x), !is.na(stage)))()
   if (nrow(d) < 5 || !is.numeric(d$x) || !is.numeric(d$y)) return(invisible(NULL))
   m <- stats::lm(y ~ stage * x, data = d)
   tr <- try(emmeans::emtrends(m, specs = ~ stage, var = "x"), silent = TRUE)

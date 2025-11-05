@@ -1,0 +1,35 @@
+#!/usr/bin/env Rscript
+
+# Ettler project: v2 autogen analysis
+# - Sources the original autogen script to reproduce baseline outputs
+# - Adds: KM median survival times (by stage) into main-effects table (v2)
+# - Adds: EDA correlation matrix (numeric) with p-values export
+# - Adds: EDA factor-vs-stage tests (chi-square/Fisher)
+# - Adds: Multiplots for main-effects and sequential-adjustments summaries
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(survival)
+  library(survminer)
+  library(broom)
+  # optional helpers
+  tryCatch(library(cowplot), error = function(e) message("cowplot not available; using base grid for multipanels"))
+  suppressWarnings({
+    requireNamespace("corrplot", quietly = TRUE)
+    requireNamespace("Hmisc", quietly = TRUE)
+  })
+})
+
+set.seed(123)
+
+dir.create("output/figures", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables", showWarnings = FALSE, recursive = TRUE)
+dir.create("reports", showWarnings = FALSE, recursive = TRUE)
+
+message("Running v2: sourcing original autogen script ...")
+source("scripts/ettler_analysis_autogen.R", chdir = TRUE)
+
+# ---------- Helpers (v2) ----------
+
+safe_num <- function(x) suppressWarnings(as.numeric
+

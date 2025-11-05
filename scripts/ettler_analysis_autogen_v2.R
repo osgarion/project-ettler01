@@ -1,0 +1,395 @@
+#!/usr/bin/env Rscript
+
+# Ettler project: v2 autogen analysis
+# - Sources the original autogen script to reproduce baseline outputs
+# - Adds: KM median survival times (by stage) into main-effects table (v2)
+# - Adds: EDA correlation matrix (numeric) with p-values export
+# - Adds: EDA factor-vs-stage tests (chi-square/Fisher)
+# - Adds: Multiplots for main-effects and sequential-adjustments summaries
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(survival)
+  library(survminer)
+  library(broom)
+  # optional helpers
+  tryCatch(library(cowplot), error = function(e) message("cowplot not available; using base grid for multipanels"))
+  suppressWarnings({
+    requireNamespace("corrplot", quietly = TRUE)
+    requireNamespace("Hmisc", quietly = TRUE)
+  })
+})
+
+set.seed(123)
+
+dir.create("output/figures", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables", showWarnings = FALSE, recursive = TRUE)
+dir.create("reports", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/main", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/figures/adjusted", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/main", showWarnings = FALSE, recursive = TRUE)
+dir.create("output/tables/adjusted", showWarnings = FALSE, recursive = TRUE)
+
+message("Running v2: sourcing original autogen script ...")
+source("scripts/ettler_analysis_autogen.R", chdir = TRUE)
+
+# ---------- Helpers (v2) ----------
+
+safe_num <- function(x) suppressWarnings(as.numeric(x))
+
+# safer CI parser that avoids backslash-heavy regex on Windows
+parse_ci_safe <- function(ci) {
+  if (is.na(ci) || is.null(ci)) return(c(NA_real_, NA_real_))
+  s <- gsub("[^0-9.,-]", "", as.character(ci))
+  parts <- strsplit(s, ",")[[1]]
+  parts <- trimws(parts)
+  if (length(parts) != 2) return(c(NA_real_, NA_real_))
+  c(safe_num(parts[1]), safe_num(parts[2]))
+}
+
+parse_ci <- function(ci) {
+  # ci formatted like "[a, b]" -> c(a, b)
+  if (is.na(ci) || is.null(ci)) return(c(NA_real_, NA_real_))
+  s <- gsub("[\n\r\\[\\]]", "", as.character(ci))  
+  parts <- strsplit(s, ",")[[1]]
+  parts <- trimws(parts)
+  if (length(parts) != 2) return(c(NA_real_, NA_real_))
+  c(safe_num(parts[1]), safe_num(parts[2]))
+}
+
+compute_km_medians_by_stage <- function(df, time_col, event_col, stage_col, label) {
+  d <- df |>
+    dplyr::select(time = dplyr::all_of(time_col), event = dplyr::all_of(event_col), stage = dplyr::all_of(stage_col)) |>
+    dplyr::mutate(
+      time = suppressWarnings(readr::parse_number(as.character(.data$time))),
+      event = ensure_binary_event(.data$event),
+      stage = as.factor(.data$stage)
+    ) |>
+    (\(d) if (identical(label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
+  if (nrow(d) == 0) {
+    return(tibble::tibble(outcome = label, stage = factor(NA), median = NA_real_, lcl = NA_real_, ucl = NA_real_))
+  }
+  fit <- survival::survfit(survival::Surv(time, event) ~ stage, data = d)
+  # Try survminer::surv_median for CI; fallback to summary(fit)$table
+  td <- try(survminer::surv_median(fit), silent = TRUE)
+  if (!inherits(td, "try-error") && all(c("median","lower","upper") %in% names(td))) {
+    out <- tibble::tibble(
+      outcome = label,
+      stage = td$strata |> gsub("^stage=", "", x = _),
+      median = td$median,
+      lcl = td$lower,
+      ucl = td$upper
+    )
+  } else {
+    st <- as.data.frame(summary(fit)$table)
+    # Expect rownames like "stage=0"; columns: median, 0.95LCL, 0.95UCL if available
+    rn <- rownames(st)
+    stage_vals <- gsub("^stage=", "", rn)
+    med <- if ("median" %in% names(st)) st$median else rep(NA_real_, nrow(st))
+    lcl <- if ("0.95LCL" %in% names(st)) st[["0.95LCL"]] else rep(NA_real_, nrow(st))
+    ucl <- if ("0.95UCL" %in% names(st)) st[["0.95UCL"]] else rep(NA_real_, nrow(st))
+    out <- tibble::tibble(outcome = label, stage = stage_vals, median = med, lcl = lcl, ucl = ucl)
+  }
+  out
+}
+
+km_labels <- vapply(km_specs, function(x) x$label, character(1))
+
+# ---------- 1) Extend main-effects summary with KM medians ----------
+
+message("v2: computing KM medians by stage and augmenting main-effects table ...")
+km_meds <- purrr::map_dfr(km_specs, function(sp) compute_km_medians_by_stage(df, sp$time, sp$event, col_stage, sp$label))
+
+km_meds_wide <- km_meds |>
+  dplyr::filter(!is.na(stage)) |>
+  dplyr::mutate(stage = as.character(stage)) |>
+  tidyr::pivot_wider(id_cols = outcome,
+                     names_from = stage,
+                     values_from = c(median, lcl, ucl),
+                     names_sep = "_")
+
+add_ci_fmt <- function(low, high) ifelse(is.na(low) | is.na(high), NA_character_, sprintf("[%.2f, %.2f]", low, high))
+
+km_meds_fmt <- km_meds_wide |>
+  dplyr::mutate(
+    median_stage0 = .data[["median_0"]],
+    median_stage0_ci = add_ci_fmt(.data[["lcl_0"]], .data[["ucl_0"]]),
+    median_stage1 = .data[["median_1"]],
+    median_stage1_ci = add_ci_fmt(.data[["lcl_1"]], .data[["ucl_1"]])
+  ) |>
+  dplyr::select(outcome, median_stage0, median_stage0_ci, median_stage1, median_stage1_ci)
+
+summary_main_models_v2 <- summary_main_models |>
+  dplyr::left_join(km_meds_fmt, by = "outcome") |>
+  dplyr::mutate(
+    effect_stage0 = dplyr::if_else(.data$outcome %in% km_labels, as.numeric(.data$median_stage0), .data$effect_stage0),
+    effect_stage0_ci = ifelse(.data$outcome %in% km_labels, .data$median_stage0_ci, .data$effect_stage0_ci),
+    effect_stage1 = dplyr::if_else(.data$outcome %in% km_labels, as.numeric(.data$median_stage1), .data$effect_stage1),
+    effect_stage1_ci = ifelse(.data$outcome %in% km_labels, .data$median_stage1_ci, .data$effect_stage1_ci)
+  )
+
+rio::export(summary_main_models_v2, "output/tables/main/summary_main_models_v2.csv")
+rio::export(summary_main_models_v2, "output/tables/main/summary_main_models_v2.xlsx")
+message(" - Wrote output/tables/main/summary_main_models_v2.csv")
+
+if (exists("summary_adjusted_models")) {
+  try(rio::export(summary_adjusted_models, "output/tables/adjusted/summary_adjusted_models.csv"), silent = TRUE)
+  try(rio::export(summary_adjusted_models, "output/tables/adjusted/summary_adjusted_models.xlsx"), silent = TRUE)
+}
+
+# ---------- 2) EDA: correlation matrix for numeric variables ----------
+
+message("v2: creating correlation matrix for numeric variables ...")
+num_cols <- df |> dplyr::select(where(is.numeric)) |> names()
+if (length(num_cols) >= 2 && requireNamespace("corrplot", quietly = TRUE)) {
+  mat <- df |> dplyr::select(dplyr::all_of(num_cols)) |> as.matrix()
+  if (requireNamespace("Hmisc", quietly = TRUE)) {
+    rc <- Hmisc::rcorr(mat, type = "spearman")
+    r <- rc$r; p <- rc$P
+  } else {
+    r <- suppressWarnings(cor(mat, method = "spearman", use = "pairwise.complete.obs"))
+    # approximate p via t approximation
+    n <- apply(mat, 2, function(x) sum(is.finite(x)))
+    # fallback: p-values not computed
+    p <- matrix(NA_real_, nrow = ncol(mat), ncol = ncol(mat), dimnames = dimnames(r))
+  }
+  rio::export(as.data.frame(r), "output/tables/eda_corr_spearman_v2.csv")
+  rio::export(as.data.frame(p), "output/tables/eda_corr_pvalues_v2.csv")
+  col_pal <- grDevices::colorRampPalette(c("#2166ac", "#f7f7f7", "#b2182b")) # blue -> white -> red
+  grDevices::tiff("output/figures/eda_corrplot_spearman_v2.tiff", width = 2400, height = 2000, res = 300, compression = "lzw")
+  corrplot::corrplot(r, method = "color", type = "lower", tl.col = "black", tl.srt = 45,
+                     p.mat = p, sig.level = 0.05, insig = "blank", col = col_pal(200), addCoef.col = "black", number.cex = 0.5)
+  grDevices::dev.off()
+  # Optional: p-value heatmap with numeric labels (for readability)
+  try({
+    rp <- as.data.frame(p) |> tibble::rownames_to_column("Var1") |>
+      tidyr::pivot_longer(-Var1, names_to = "Var2", values_to = "p")
+    pval_plot <- ggplot(rp, aes(x = Var1, y = Var2, fill = p)) +
+      geom_tile() +
+      geom_text(aes(label = ifelse(is.na(p), "", sprintf("%.3f", p))), size = 3) +
+      scale_fill_gradient(low = "#ffffff", high = "#b2182b", na.value = "#f0f0f0") +
+      coord_fixed() +
+      theme_minimal(base_size = 12) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      labs(title = "P-values (Spearman)", x = NULL, y = NULL)
+    ggplot2::ggsave("output/figures/eda_corrplot_pvalues_v2.tiff", pval_plot, width = 10, height = 8, dpi = 300, device = "tiff", compression = "lzw")
+  }, silent = TRUE)
+}
+
+# ---------- 6) EDA: factor analysis (association tests) ----------
+
+message("v2: running factor-vs-stage association tests ...")
+if (exists("col_stage") && col_stage %in% names(df)) {
+  fac_cols <- df |> dplyr::select(where(~ is.factor(.x) || is.character(.x))) |> names()
+  fac_cols <- setdiff(fac_cols, col_stage)
+  res <- list()
+  for (v in fac_cols) {
+    dsub <- df |> dplyr::select(var = .data[[v]], stage = .data[[col_stage]]) |> dplyr::mutate(var = as.factor(var), stage = as.factor(stage)) |> tidyr::drop_na()
+    if (nrow(dsub) == 0 || nlevels(dsub$var) < 2 || nlevels(dsub$stage) < 2) next
+    tbl <- table(dsub$var, dsub$stage)
+    test_method <- "chisq"
+    pval <- NA_real_
+    note <- NA_character_
+    ok <- TRUE
+    chi <- try(chisq.test(tbl, correct = FALSE), silent = TRUE)
+    if (inherits(chi, "try-error") || any(chi$expected < 5, na.rm = TRUE)) {
+      fe <- try(fisher.test(tbl), silent = TRUE)
+      if (!inherits(fe, "try-error")) {
+        test_method <- "fisher"
+        pval <- fe$p.value
+        note <- "Fisher used (small expected)"
+      } else {
+        ok <- FALSE
+      }
+    } else {
+      pval <- chi$p.value
+    }
+    if (ok) res[[length(res) + 1]] <- tibble::tibble(variable = v, method = test_method, p.value = pval, n_levels = nlevels(dsub$var))
+  }
+  if (length(res)) {
+    tab <- dplyr::bind_rows(res)
+    rio::export(tab, "output/tables/eda_factor_vs_stage_tests_v2.csv")
+  }
+}
+
+# ---------- 3) Plots for main-effects summary ----------
+
+message("v2: plotting main-effects summary (multiplots) ...")
+
+make_point_plot <- function(df_plot, xlab = NULL, title = NULL) {
+  ggplot(df_plot, aes(x = label, y = effect, ymin = low, ymax = high)) +
+    geom_pointrange(color = "#2c3e50") +
+    coord_flip() +
+    theme_minimal(base_size = 12) +
+    labs(x = xlab, y = "Effect (estimate)", title = title)
+}
+
+save_main_plot <- function(row) {
+  out <- paste0("output/figures/main/mainplot_", row$outcome, "_v2.tiff") |> gsub("[[:space:]]+", "_", x = _)
+  if (row$outcome %in% km_labels) {
+    # KM: left = overall, right = by stage
+    sp <- km_specs[[which(km_labels == row$outcome)[1]]]
+    d <- df |>
+      dplyr::select(time = dplyr::all_of(sp$time), event = dplyr::all_of(sp$event), stage = dplyr::all_of(col_stage)) |>
+      dplyr::mutate(time = suppressWarnings(readr::parse_number(as.character(.data$time))),
+                    event = ensure_binary_event(.data$event), stage = as.factor(.data$stage)) |>
+      (\(d) if (identical(sp$label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+      dplyr::filter(!is.na(time), !is.na(event))
+    if (nrow(d) < 5) return(invisible(NULL))
+    f_all <- survival::survfit(survival::Surv(time, event) ~ 1, data = d)
+    p_left <- ggsurvplot(f_all, data = d, conf.int = TRUE, risk.table = FALSE,
+                         ggtheme = theme_minimal() + theme(plot.title = element_text(hjust = 0.5, face = "bold")),
+                         title = paste0("KM (All): ", sp$label))$plot
+    f_by <- survival::survfit(survival::Surv(time, event) ~ stage, data = d)
+    p_right <- ggsurvplot(f_by, data = d, conf.int = TRUE, risk.table = FALSE,
+                          ggtheme = theme_minimal() + theme(plot.title = element_text(hjust = 0.5, face = "bold")),
+                          legend.title = "stage_early",
+                          title = paste0("KM by stage_early: ", sp$label))$plot
+    grDevices::tiff(out, width = 2200, height = 1000, res = 300, compression = "lzw")
+    if ("cowplot" %in% .packages()) {
+      print(cowplot::plot_grid(p_left, p_right, ncol = 2))
+    } else {
+      grid::grid.newpage(); pushViewport(grid::viewport(layout = grid::grid.layout(1, 2)))
+      print(p_left, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 1))
+      print(p_right, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 2))
+    }
+    grDevices::dev.off()
+  } else {
+    # Point-range panels from summary_main_models_v2 (overall and stage-specific if available)
+    # Parse CI string
+    lowhigh <- parse_ci_safe(row$effect_all_ci)
+    df_left <- tibble::tibble(label = "All", effect = as.numeric(row$effect_all), low = lowhigh[1], high = lowhigh[2])
+    df_right <- tibble::tibble(
+      label = c("Stage 0", "Stage 1"),
+      effect = c(as.numeric(row$effect_stage0), as.numeric(row$effect_stage1)),
+      low = sapply(c(row$effect_stage0_ci, row$effect_stage1_ci), function(z) parse_ci_safe(z)[1]),
+      high = sapply(c(row$effect_stage0_ci, row$effect_stage1_ci), function(z) parse_ci_safe(z)[2])
+    ) |> dplyr::filter(!is.na(effect))
+    p_left <- make_point_plot(df_left, xlab = NULL, title = paste0(row$outcome, " (All)"))
+    p_right <- make_point_plot(df_right, xlab = NULL, title = paste0(row$outcome, " (by Stage)"))
+    grDevices::tiff(out, width = 2000, height = 1000, res = 300, compression = "lzw")
+    if ("cowplot" %in% .packages()) {
+      print(cowplot::plot_grid(p_left, p_right, ncol = 2))
+    } else {
+      grid::grid.newpage(); pushViewport(grid::viewport(layout = grid::grid.layout(1, 2)))
+      print(p_left, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 1))
+      print(p_right, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 2))
+    }
+    grDevices::dev.off()
+  }
+}
+
+invisible(purrr::pwalk(summary_main_models_v2, save_main_plot))
+
+# ---------- 4) Plots for sequential-adjustments summary ----------
+
+message("v2: plotting sequential-adjustments summary (multiplots) ...")
+
+save_adjusted_plot <- function(row) {
+  out <- paste0("output/figures/adjusted/adjplot_", row$outcome, "__", row$covariate, "_v2.tiff") |> gsub("[^A-Za-z0-9_.-]+", "_", x = _)
+  lowhigh <- parse_ci_safe(row$effect_all_ci)
+  df_left <- tibble::tibble(label = "All", effect = as.numeric(row$effect_all), low = lowhigh[1], high = lowhigh[2])
+  df_right <- tibble::tibble(
+    label = c("Stage 0", "Stage 1"),
+    effect = c(as.numeric(row$effect_stage0), as.numeric(row$effect_stage1)),
+    low = sapply(c(row$effect_stage0_ci, row$effect_stage1_ci), function(z) parse_ci_safe(z)[1]),
+    high = sapply(c(row$effect_stage0_ci, row$effect_stage1_ci), function(z) parse_ci_safe(z)[2])
+  ) |> dplyr::filter(!is.na(effect))
+  p_left <- make_point_plot(df_left, xlab = NULL, title = paste0(row$outcome, " ~ ", row$covariate, " (All)"))
+  p_right <- make_point_plot(df_right, xlab = NULL, title = paste0(row$outcome, " ~ ", row$covariate, " (by Stage)"))
+  grDevices::tiff(out, width = 2000, height = 1000, res = 300, compression = "lzw")
+  if ("cowplot" %in% .packages()) {
+    print(cowplot::plot_grid(p_left, p_right, ncol = 2))
+  } else {
+    grid::grid.newpage(); pushViewport(grid::viewport(layout = grid::grid.layout(1, 2)))
+    print(p_left, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 1))
+    print(p_right, vp = grid::viewport(layout.pos.row = 1, layout.pos.col = 2))
+  }
+  grDevices::dev.off()
+}
+
+# ---------- 2a) EDA: skimr table export ----------
+dir.create("output/tables/eda", showWarnings = FALSE, recursive = TRUE)
+if (requireNamespace("skimr", quietly = TRUE)) {
+  sk <- skimr::skim(df)
+  try(rio::export(as.data.frame(sk), "output/tables/eda/skimr_summary_v2.csv"), silent = TRUE)
+  try(rio::export(as.data.frame(sk), "output/tables/eda/skimr_summary_v2.xlsx"), silent = TRUE)
+}
+
+# ---------- 2b) EDA: dependent variables vs stage_early ----------
+dir.create("output/figures/eda", showWarnings = FALSE, recursive = TRUE)
+
+save_tiff <- function(path, p, w = 8, h = 6) ggplot2::ggsave(path, p, width = w, height = h, dpi = 300, device = "tiff", compression = "lzw")
+stage_lab <- if (exists("col_stage")) col_stage else "stage_early"
+
+# Binary: response_achieved by stage
+if (exists("col_response_achieved") && col_response_achieved %in% names(df) && stage_lab %in% names(df)) {
+  d <- df |>
+    dplyr::select(y = .data[[col_response_achieved]], stage = .data[[stage_lab]]) |>
+    dplyr::mutate(stage = as.factor(stage), y = as.factor(y)) |>
+    tidyr::drop_na()
+  if (nrow(d) > 0) {
+    p_bar <- ggplot(d, aes(x = stage, fill = y)) +
+      geom_bar(position = "fill", color = "white") +
+      scale_y_continuous(labels = scales::percent_format()) +
+      theme_minimal(base_size = 12) +
+      labs(title = "response_achieved by stage_early", x = "stage_early", y = "Proportion", fill = "response_achieved")
+    save_tiff("output/figures/eda/eda_bar_response_achieved_by_stage_v2.tiff", p_bar, 8, 6)
+  }
+}
+
+# Numeric: response_time_to by stage (y>0)
+if (exists("col_response_time_to") && col_response_time_to %in% names(df) && stage_lab %in% names(df)) {
+  d <- df |>
+    dplyr::select(y = .data[[col_response_time_to]], stage = .data[[stage_lab]]) |>
+    dplyr::mutate(stage = as.factor(stage)) |>
+    dplyr::filter(!is.na(y), y > 0, !is.na(stage))
+  if (nrow(d) > 0) {
+    p_box <- ggplot(d, aes(x = stage, y = y)) +
+      geom_boxplot(outlier.shape = NA, fill = "#cfe8ff") +
+      geom_jitter(width = 0.15, alpha = 0.5, size = 1.5, color = "#2c3e50") +
+      theme_minimal(base_size = 12) +
+      labs(title = "response_time_to by stage_early", x = "stage_early", y = col_response_time_to)
+    save_tiff("output/figures/eda/eda_boxjitter_response_time_to_by_stage_v2.tiff", p_box, 8, 6)
+
+    p_hist <- ggplot(d, aes(x = y)) +
+      geom_histogram(bins = 30, fill = "#2c7fb8", color = "white") +
+      facet_wrap(~ stage, ncol = 2, scales = "free_y") +
+      theme_minimal(base_size = 12) +
+      labs(title = "response_time_to histogram by stage_early", x = col_response_time_to, y = "Count")
+    save_tiff("output/figures/eda/eda_hist_response_time_to_by_stage_v2.tiff", p_hist, 10, 7)
+  }
+}
+
+# Survival times from km_specs
+if (exists("km_specs")) {
+  for (sp in km_specs) {
+    time_col <- sp$time; outname <- sp$label
+    if (is.null(time_col) || !time_col %in% names(df) || !(stage_lab %in% names(df))) next
+    d <- df |>
+      dplyr::select(time = .data[[time_col]], stage = .data[[stage_lab]]) |>
+      dplyr::mutate(time = suppressWarnings(readr::parse_number(as.character(time))), stage = as.factor(stage)) |>
+      tidyr::drop_na()
+    if (nrow(d) == 0) next
+    p_bx <- ggplot(d, aes(x = stage, y = time)) +
+      geom_boxplot(outlier.shape = NA, fill = "#d9f0a3") +
+      geom_jitter(width = 0.15, alpha = 0.5, size = 1.3, color = "#006837") +
+      theme_minimal(base_size = 12) +
+      labs(title = paste0(outname, " (time) by stage_early"), x = "stage_early", y = time_col)
+    save_tiff(file.path("output/figures/eda", paste0("eda_boxjitter_", outname, "_by_stage_v2.tiff")), p_bx, 8, 6)
+
+    p_h <- ggplot(d, aes(x = time)) +
+      geom_histogram(bins = 30, fill = "#74c476", color = "white") +
+      facet_wrap(~ stage, ncol = 2, scales = "free_y") +
+      theme_minimal(base_size = 12) +
+      labs(title = paste0(outname, " histogram by stage_early"), x = time_col, y = "Count")
+    save_tiff(file.path("output/figures/eda", paste0("eda_hist_", outname, "_by_stage_v2.tiff")), p_h, 10, 7)
+  }
+}
+
+if (exists("summary_adjusted_models")) {
+  invisible(purrr::pwalk(summary_adjusted_models, save_adjusted_plot))
+}
+
+message("v2 completed. Key additional outputs:\n - output/tables/summary_main_models_v2.csv\n - output/figures/eda_corrplot_spearman_v2.tiff\n - output/tables/eda_factor_vs_stage_tests_v2.csv\n - output/figures/mainplot_*_v2.tiff\n - output/figures/adjplot_*_v2.tiff")

@@ -1,0 +1,77 @@
+R version 4.5.1 (2025-06-13 ucrt)
+Platform: x86_64-w64-mingw32/x64
+Running under: Windows 10 x64 (build 19045)
+
+Matrix products: default
+  LAPACK version 3.12.1
+
+locale:
+[1] LC_COLLATE=Czech_Czechia.utf8  LC_CTYPE=Czech_Czechia.utf8    LC_MONETARY=Czech_Czechia.utf8
+[4] LC_NUMERIC=C                   LC_TIME=Czech_Czechia.utf8    
+
+time zone: Europe/Prague
+tzcode source: internal
+
+attached base packages:
+[1] grid      stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] cowplot_1.2.0         MASS_7.3-65           nlme_3.1-168          data.table_1.17.8    
+ [5] ggbeeswarm_0.7.2      adjustedCurves_0.11.3 ggfortify_0.4.19      ggsurvfit_1.2.0      
+ [9] kableExtra_1.4.0      FactoMineR_2.12       lazyWeave_3.0.3       ggforce_0.5.0        
+[13] lmerTest_3.1-3        lme4_1.1-37           Matrix_1.7-4          factoextra_1.0.7     
+[17] corrr_0.4.5           multidplyr_0.1.3      ComplexHeatmap_2.24.1 paletteer_1.6.0      
+[21] psych_2.5.6           yardstick_1.3.2       workflowsets_1.1.1    workflows_1.3.0      
+[25] tune_2.0.1            tailor_0.1.0          rsample_1.3.1         recipes_1.3.1        
+[29] parsnip_1.3.3         modeldata_1.5.1       infer_1.0.9           dials_1.4.2          
+[33] scales_1.4.0          tidymodels_1.4.1      rstatix_0.7.3         flextable_0.9.10     
+[37] sjPlot_2.9.0          gtsummary_2.4.0       car_3.1-3             carData_3.0-5        
+[41] ggthemes_5.1.0        see_0.12.0            report_0.6.2          parameters_0.28.2    
+[45] performance_0.15.2    modelbased_0.13.0     insight_1.4.2         effectsize_1.0.1     
+[49] datawizard_1.3.0      correlation_0.8.8     bayestestR_0.17.0     easystats_0.7.5      
+[53] furrr_0.3.1           future_1.67.0         tictoc_1.2.1          beepr_2.0            
+[57] equatiomatic_0.4.4    emmeans_2.0.0         broom.helpers_1.22.0  naniar_1.1.0         
+[61] survminer_0.5.1       ggpubr_0.6.2          survival_3.8-3        broom_1.0.10         
+[65] rio_1.2.4             skimr_2.2.1           janitor_2.2.1         lubridate_1.9.4      
+[69] forcats_1.0.1         stringr_1.5.2         dplyr_1.1.4           purrr_1.1.0          
+[73] readr_2.1.5           tidyr_1.3.1           tibble_3.3.0          ggplot2_4.0.0        
+[77] tidyverse_2.0.0      
+
+loaded via a namespace (and not attached):
+  [1] ggtext_0.1.2            matrixStats_1.5.0       DiceDesign_1.10         RColorBrewer_1.1-3     
+  [5] doParallel_1.0.17       repr_1.1.7              numDeriv_2016.8-1.1     doRNG_1.8.6.2          
+  [9] tools_4.5.1             backports_1.5.0         utf8_1.2.6              DT_0.34.0              
+ [13] R6_2.6.1                GetoptLong_1.0.5        withr_3.0.2             gridExtra_2.3          
+ [17] cli_3.6.5               textshaping_1.0.4       pacman_0.5.1            flashClust_1.01-2      
+ [21] officer_0.7.0           labeling_0.4.3          mvtnorm_1.3-3           survMisc_0.5.6         
+ [25] S7_0.2.0                askpass_1.2.1           systemfonts_1.3.1       svglite_2.2.2          
+ [29] R.utils_2.13.0          parallelly_1.45.1       readxl_1.4.5            rstudioapi_0.17.1      
+ [33] generics_0.1.4          shape_1.4.6.1           zip_2.3.3               leaps_3.2              
+ [37] S4Vectors_0.46.0        abind_1.4-8             R.methodsS3_1.8.2       lifecycle_1.0.4        
+ [41] scatterplot3d_0.3-44    yaml_2.3.10             snakecase_0.11.1        promises_1.5.0         
+ [45] crayon_1.5.3            lattice_0.22-7          haven_2.5.5             pillar_1.11.1          
+ [49] knitr_1.50              rjson_0.2.23            boot_1.3-32             estimability_1.5.1     
+ [53] future.apply_1.20.0     codetools_0.2-20        glue_1.8.0              fontLiberation_0.1.0   
+ [57] vctrs_0.6.5             png_0.1-8               Rdpack_2.6.4            cellranger_1.1.0       
+ [61] gtable_0.3.6            rematch2_2.1.2          cachem_1.1.0            gower_1.0.2            
+ [65] xfun_0.54               rbibutils_2.3           mime_0.13               prodlim_2025.04.28     
+ [69] coda_0.19-4.1           reformulas_0.4.2        timeDate_4051.111       audio_0.1-11           
+ [73] iterators_1.0.14        KMsurv_0.1-6            hardhat_1.4.2           lava_1.8.2             
+ [77] ipred_0.9-15            fontquiver_0.2.1        vipor_0.4.7             otel_0.2.0             
+ [81] rpart_4.1.24            colorspace_2.1-2        BiocGenerics_0.54.0     nnet_7.3-20            
+ [85] mnormt_2.1.1            tidyselect_1.2.1        compiler_4.5.1          xml2_1.4.1             
+ [89] fontBitstreamVera_0.1.1 multcompView_0.1-10     digest_0.6.37           minqa_1.2.8            
+ [93] rmarkdown_2.30          htmltools_0.5.8.1       pkgconfig_2.0.3         base64enc_0.1-3        
+ [97] lhs_1.2.0               fastmap_1.2.0           htmlwidgets_1.6.4       rlang_1.1.6            
+[101] GlobalOptions_0.1.2     shiny_1.11.1            farver_2.1.2            zoo_1.8-14             
+[105] jsonlite_2.0.0          R.oo_1.27.1             magrittr_2.0.4          Formula_1.2-5          
+[109] GPfit_1.0-9             Rcpp_1.1.0              gdtools_0.4.4           visdat_0.6.0           
+[113] stringi_1.8.7           parallel_4.5.1          listenv_0.10.0          ggrepel_0.9.6          
+[117] splines_4.5.1           gridtext_0.1.5          hms_1.1.4               circlize_0.4.16        
+[121] uuid_1.2-1              ggsignif_0.6.4          rngtools_1.5.2          stats4_4.5.1           
+[125] evaluate_1.0.5          tweenr_2.0.3            nloptr_2.2.1            tzdb_0.5.0             
+[129] foreach_1.5.2           httpuv_1.6.16           openssl_2.3.4           polyclip_1.10-7        
+[133] km.ci_0.5-6             clue_0.3-66             conflicted_1.2.0        xtable_1.8-4           
+[137] later_1.4.4             viridisLite_0.4.2       class_7.3-23            ragg_1.5.0             
+[141] memoise_2.0.1           beeswarm_0.4.0          IRanges_2.42.0          writexl_1.5.4          
+[145] cluster_2.1.8.1         timechange_0.3.0        globals_0.18.0         

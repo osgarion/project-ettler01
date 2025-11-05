@@ -1,0 +1,6 @@
+outcome,p_all,effect_all,effect_all_ci,p_stage0,effect_stage0,effect_stage0_ci,p_stage1,effect_stage1,effect_stage1_ci
+response_achieved,0.5205,1.7857,"[0.334, 13.651]",0.3196,1.4,"[0.722, 2.716]",0.2734,2.5,"[0.485, 12.886]"
+time_to_next_treatment,0.0183,0.2598,"[0.085, 0.796]",,,,,,
+treatment_duration,0.8905,1.0615,"[0.454, 2.483]",,,,,,
+response_duration,0.22,0.4594,"[0.133, 1.592]",,,,,,
+response_time_to,0.3918,-1.2435,"[-4.179, 1.692]",0,4.0435,"[2.803, 5.284]",0.0399,2.8,"[0.140, 5.460]"
