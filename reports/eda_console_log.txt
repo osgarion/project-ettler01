@@ -72,20 +72,3 @@ Group variables            None
 20 discontinued_due_to_ae        12         0.733  0.303  0.467  0  0     0    1      1   ▇▁▁▁▃
 21 ae_hyper_tag_grade_3_4         0         1      0.4    0.495  0  0     0    1      1   ▇▁▁▁▅
 22 ae_hyper_tag_any               0         1      0.889  0.318  0  1     1    1      1   ▁▁▁▁▇
-
-Missingness summary:
-# A tibble: 24 × 3
-   variable               n_miss pct_miss
-   <chr>                   <int>    <num>
- 1 discontinued_due_to_ae     12    26.7 
- 2 response_duration           2     4.44
- 3 stage_early                 1     2.22
- 4 response_achieved           1     2.22
- 5 ttnt                        1     2.22
- 6 response_time_to            1     2.22
- 7 progression                 1     2.22
- 8 treatment_duration          1     2.22
- 9 discontinuation_reason      1     2.22
-10 initials                    0     0   
-# ℹ 14 more rows
-# ℹ Use `print(n = ...)` to see more rows
