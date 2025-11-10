@@ -1,0 +1,143 @@
+---
+title: "Adverse effect of bexaroten therapy in T-lymphom"
+author: "Jiri Baloun"
+date: "Compiled on: **2025-11-06**  <br> Last updated **`r format(Sys.time(), '%Y-%m-%d')`**"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.align = 'center', dpi = 150
+)
+options(knitr.kable.NA = '')
+
+suppressPackageStartupMessages({
+  library(tidyverse); library(janitor); library(readr); library(broom)
+  library(skimr); library(rio); library(here)
+  library(survival); library(survminer); library(emmeans)
+  library(ggplot2); library(patchwork); library(cowplot)
+  library(kableExtra); library(conflicted)
+})
+
+conflicted::conflicts_prefer(
+  janitor::remove_empty,
+  dplyr::filter,
+  dplyr::mutate,
+  dplyr::rename,
+  dplyr::summarize,
+  dplyr::summarise,
+  dplyr::select,
+  purrr::map,
+  tidyr::extract,
+  stats::chisq.test,
+  base::intersect,
+  base::setdiff,
+  dplyr::last,
+  dplyr::first,
+  dplyr::between
+)
+
+# Output folders inside reports
+dir.create(here::here("reports","figs"), showWarnings = FALSE, recursive = TRUE)
+dir.create(here::here("reports","tables"), showWarnings = FALSE, recursive = TRUE)
+```
+
+# Basic Description
+
+This report investigates outcomes in patients with T-cell lymphoma treated with bexarotene and evaluates whether early-stage disease (stage_early) is associated with response and time-to-event endpoints. The overarching goal is twofold: (i) to characterise the analytic cohort and data structure, and (ii) to estimate the effect of stage_early on key clinical outcomes, both unadjusted and after sequential adjustment for clinically relevant covariates.
+
+Objectives
+- Describe the cohort and data quality (sample size, distributions, missingness) and explore structure among numeric and categorical variables.
+- Quantify the relationship between stage_early and: (a) response_achieved (binary), (b) three survival endpoints (time_to_next_treatment, treatment_duration, response_duration), and (c) response_time_to among observations with y > 0 (continuous).
+- Examine robustness by adding one covariate at a time to the base models containing stage_early, and summarise stage-specific effects to aid interpretation.
+
+Endpoints and covariates
+- Binary: response_achieved.
+- Survival: time_to_next_treatment (time, event), treatment_duration (time, discontinuation event recoded to 0/1), response_duration (time, progression event recoded to 0/1).
+- Continuous (restricted): response_time_to among y > 0.
+- Mandatory factor: stage_early (binary, reference level 0 where available).
+- Prespecified covariates considered for sequential adjustment: age, sex, BMI, PS ECOG, first systemic therapy, dyslipidemia_before, thyroid_disease_before, and monotherapy. Character covariates are analysed as factors; numeric covariates on their native scale.
+
+Analysis plan and reporting
+- EDA: We use skimr to summarise variables; quantify numeric associations via Spearman’s rank correlation (Hmisc rcorr for r and p) and visualise a lower-triangle heatmap with non-significant cells masked at α = 0.05; assess associations between categorical variables and stage_early using Pearson’s chi-square (all expected counts ≥ 5) or Fisher’s exact test otherwise.
+- Main models: Logistic regression for response_achieved; Cox proportional hazards models for each survival endpoint; linear regression for response_time_to (y > 0). We report effect sizes (OR, HR, or mean difference) with 95% CI and exact two-sided p-values. For interpretation, stage-specific estimates (probabilities/means) are derived via emmeans, and Kaplan–Meier curves (overall and by stage) are provided with medians and 95% CI.
+- Sequentially adjusted models: For each covariate, we fit outcome ~ stage_early + covariate (and, where feasible, outcome ~ stage_early * covariate) to recover stage-specific effects using emmeans/emtrends for logistic and linear families, and stratified Cox (stage-specific models) for survival. Results are exported as tables and accompanied by concise narrative summaries.
+- Assumptions/diagnostics: Logistic models are monitored for (quasi)separation; Cox models assume proportional hazards (results interpreted cautiously given sample size); linear models assume approximate normality and homoscedasticity (restriction to y > 0 mitigates zero-inflation). Analyses use complete-case records without imputation. All p-values are unadjusted and interpreted in context.
+
+```{r data_import, include=FALSE}
+# Robust import of d04
+obj_candidates <- c(
+  here::here("scripts","functions","OBJ_01.R"),
+  here::here("functions","OBJ_01.R"),
+  here::here("scripts","OBJ_01.R"),
+  here::here("OBJ_01.R")
+)
+ok_src <- FALSE
+for (p in obj_candidates) {
+  if (file.exists(p)) {
+    try(source(p), silent = TRUE)
+    if (exists("d04") && is.data.frame(d04)) { ok_src <- TRUE; break }
+  }
+}
+if (!ok_src) {
+  rdata_path <- here::here("reports","markD_03.RData")
+  if (file.exists(rdata_path)) {
+    env <- new.env(parent = emptyenv()); load(rdata_path, envir = env)
+    if (exists("d04", envir = env)) d04 <- get("d04", envir = env)
+  }
+}
+stopifnot(exists("d04"), is.data.frame(d04))
+
+# Drop identifiers
+if (requireNamespace("tidyselect", quietly = TRUE)) {
+  d04 <- d04 |> dplyr::select(-tidyselect::any_of(c("Initials","initials")))
+} else {
+  d04 <- d04 |> dplyr::select(-any_of(c("Initials","initials")))
+}
+
+# Canonicalize df
+df <- d04 |>
+  janitor::clean_names() |>
+  dplyr::mutate(
+    discontinuation_reason = dplyr::if_else(.data$discontinuation_reason == 0, 0, 1),
+    sex = dplyr::if_else(.data$sex == "M", 1, 0)
+  )
+
+# Alias map and resolve
+alias_map <- list(
+  time_to_next_treatmen = c("ttnt"),
+  ttnt_achieved = c("ttnt_achieved"),
+  treatment_duration = c("treatment_duration"),
+  discontinuation_reason = c("discontinuation_reason"),
+  response_duration = c("response_duration"),
+  progression = c("progression"),
+  response_achieved = c("response_achieved"),
+  response_time_to = c("response_time_to"),
+  stage_early = c("stage_early")
+)
+resolve_col <- function(df, target, aliases) {
+  choices <- unique(c(target, aliases)); hit <- choices[choices %in% names(df)]
+  if (!length(hit)) stop(sprintf("Missing required column: %s", target))
+  hit[1]
+}
+col_time_ttnt <- resolve_col(df, "time_to_next_treatmen", alias_map$time_to_next_treatmen)
+col_event_ttnt <- resolve_col(df, "ttnt_achieved", alias_map$ttnt_achieved)
+```
+
