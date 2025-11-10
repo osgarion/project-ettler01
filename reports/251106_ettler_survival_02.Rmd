@@ -1,0 +1,1352 @@
+---
+title: "Adverse effect of bexaroten therapy in T-lymphom"
+author: "Jiri Baloun"
+date: "Compiled on: **2025-11-06**  <br> Last updated **`r format(Sys.time(), '%Y-%m-%d')`**"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{=html}
+<style type="text/css">
+.title { text-align: center; }
+.author { font-size: 30px; text-align: center; font-style: italic; font-weight: 300; }
+.date { font-weight: 300; }
+h1, h2, h3, h4, h5 { font-weight: 600; margin-top: 2em; }
+body {text-align: justify}
+blockquote { padding: 10px 20px; margin: 0 0 20px; font-size: 14px; border-left: 5px solid #eee; }
+p { text-indent: 2rem; }
+table { width:100%; }
+.main-container { max-width: 100% !important; margin: auto; }
+img{ height: 100%; width: 100%; object-fit: cover; }
+.boxBorder { border: 2px solid #990066; padding: 10px; outline: #990066 solid 5px; outline-offset: 5px; }
+</style>
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.align = 'center', dpi = 150
+)
+options(knitr.kable.NA = '')
+
+suppressPackageStartupMessages({
+  library(tidyverse); library(janitor); library(readr); library(broom)
+  library(skimr); library(rio); library(here)
+  library(survival); library(survminer); library(emmeans)
+  library(ggplot2); library(patchwork); library(cowplot)
+  library(kableExtra); library(conflicted)
+})
+
+conflicted::conflicts_prefer(
+  janitor::remove_empty,
+  dplyr::filter,
+  dplyr::mutate,
+  dplyr::rename,
+  dplyr::summarize,
+  dplyr::summarise,
+  dplyr::select,
+  purrr::map,
+  tidyr::extract,
+  stats::chisq.test,
+  base::intersect,
+  base::setdiff,
+  dplyr::last,
+  dplyr::first,
+  dplyr::between
+)
+
+# Output folders inside reports
+dir.create(here::here("reports","figs"), showWarnings = FALSE, recursive = TRUE)
+dir.create(here::here("reports","tables"), showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r helpers_core, include=FALSE}
+# Ensure/cast event indicator to 0/1 as required by survival models
+ensure_binary_event <- function(v) {
+  if (is.numeric(v)) return(ifelse(is.na(v), NA_integer_, ifelse(v == 0, 0L, 1L)))
+  if (is.logical(v)) return(ifelse(is.na(v), NA_integer_, ifelse(v, 1L, 0L)))
+  lv <- tolower(trimws(as.character(v)))
+  yes <- c("1","y","yes","true","event","occurred","dead","progressed","failure")
+  no  <- c("0","n","no","false","censored","alive","none","success")
+  out <- ifelse(lv %in% yes, 1L, ifelse(lv %in% no, 0L, NA_integer_))
+  as.integer(out)
+}
+```
+
+# Basic Description
+
+This report investigates outcomes in patients with T‑cell lymphoma treated with bexarotene and evaluates whether early‑stage disease (stage_early) is associated with response and time‑to‑event endpoints. The overarching goal is twofold: (i) to characterise the analytic cohort and data structure, and (ii) to estimate the effect of stage_early on key clinical outcomes, both unadjusted and after sequential adjustment for clinically relevant covariates.
+
+Objectives
+- Describe the cohort and data quality (sample size, distributions, missingness) and explore structure among numeric and categorical variables.
+- Quantify the relationship between stage_early and: (a) response_achieved (binary), (b) three survival endpoints (time_to_next_treatment, treatment_duration, response_duration), and (c) response_time_to among observations with y > 0 (continuous).
+- Examine robustness by adding one covariate at a time to the base models containing stage_early, and summarise stage‑specific effects to aid interpretation.
+
+Endpoints and covariates
+- Binary: response_achieved.
+- Survival: time_to_next_treatment (time, event), treatment_duration (time, discontinuation event recoded to 0/1), response_duration (time, progression event recoded to 0/1).
+- Continuous (restricted): response_time_to among y > 0.
+- Mandatory factor: stage_early (binary, reference level 0 where available).
+- Prespecified covariates considered for sequential adjustment: age, sex, BMI, PS ECOG, first systemic therapy, dyslipidemia_before, thyroid_disease_before, and monotherapy. Character covariates are analysed as factors; numeric covariates on their native scale.
+
+Analysis plan and reporting
+- EDA: We use skimr to summarise variables; quantify numeric associations via Spearman’s rank correlation (Hmisc rcorr for r and p) and visualise a lower‑triangle heatmap with non‑significant cells masked at α = 0.05; assess associations between categorical variables and stage_early using Pearson’s chi‑square (all expected counts ≥ 5) or Fisher’s exact test otherwise.
+- Main models: Logistic regression for response_achieved; Cox proportional hazards models for each survival endpoint; linear regression for response_time_to (y > 0). We report effect sizes (OR, HR, or mean difference) with 95% CI and exact two‑sided p‑values. For interpretation, stage‑specific estimates (probabilities/means) are derived via emmeans, and Kaplan–Meier curves (overall and by stage) are provided with medians and 95% CI.
+- Sequentially adjusted models: For each covariate, we fit outcome ~ stage_early + covariate (and, where feasible, outcome ~ stage_early * covariate) to recover stage‑specific effects using emmeans/emtrends for logistic and linear families, and stratified Cox (stage‑specific models) for survival. Results are exported as tables and accompanied by concise narrative summaries.
+- Assumptions/diagnostics: Logistic models are monitored for (quasi)separation; Cox models assume proportional hazards (results interpreted cautiously given sample size); linear models assume approximate normality and homoscedasticity (restriction to y > 0 mitigates zero‑inflation). Analyses use complete‑case records without imputation. All p‑values are unadjusted and interpreted in context.
+
+Data handling and reproducibility
+- Immediately after loading, we remove non‑analytic identifiers (e.g., initials) and harmonise column names (clean_names). Stage_early is coerced to a binary factor with reference 0 where available; time/event variables are parsed to numeric and events coerced to 0/1. Figures and tables are saved under reports/figs and reports/tables to support traceability; package versions and platform details are given in Session info.
+
+# Abbreviations
+
+| Parameter | Description | Column Name |
+|----------------|-----------------------------------------|----------------|
+| Initials | XX = surname, forename | initials |
+| Center | CZ/DE | center |
+| Age | at the time of initiation of Bexaroten (years) | age |
+| Sex | M/F | sex |
+| BMI | at the time of initiation of Bexarotene | bmi |
+| PS ECOG | at the time of initiation of Bexarotene | ps_ecog |
+| CTCL type | according to WHO-EORTC 2018 | ctcl_type |
+| Stage | at the time of initiation of Bexarotene | stage |
+| Early Stage? | 1= yes 0= no | stage_early |
+| T | at the time of initiation of Bexarotene | t_stage |
+| N | at the time of initiation of Bexarotene | n_stage |
+| M | at the time of initiation of Bexarotene | m_stage |
+| B | at the time of initiation of Bexarotene | b_stage |
+| Time since Dg. | at the time of initiation of Bexarotene (months) | months_since_diagnosis |
+| Time since 1. clin. manifestation | Before the initiation of Bexarotene (months) | months_since_first_symptom |
+| Radiologic Examinations | Dg. Procedures, such as CT, PET, USG.. Any time during the course of disease (0=only clin. Exam.) | radiologic_exams |
+| SDT before | Skin directed therapy preceding the initiation of bexarotene, incl. Radiotherapy | sdt_before |
+| SysTh before | Systemic treatments preceding the initiation of bexarotene (incl. + TSEI with \> 50% BSA) + TSEI \>50% BSA | systh_before |
+| First syst, Therapy? | 1= yes 0= no | first_syst_th |
+| Initial dose | Daily Dose (mg/m²) | initial_dose_mg_m2 |
+| Final dose | The highest tolerable daily dose (mg/m²) | final_dose_mg_m2 |
+| Initial SysTh | Other antineoplastic Systemic therapies at the time of initiation of Bexarotene | initial_systh |
+| SysTh during the Treatment | Other antineoplastic Systemic therapies during the treatment with bexarotene (duration in months) | systh_during_treatment |
+| SDT during the Treatment | Skin directed Therapy during the treatment with bexarotene | sdt_during_treatment |
+| Best treatment response | SD, PR, CR | response_best |
+| Response? | 1=PR, CR, 0= SD,PD | response_achieved |
+| MonoTh? | was the best treatment response achieved during the monotherapy (1=yes, 0=no) | monotherapy |
+| Time to Response | time to achieve the best treatment response (0=only SD achieved) | response_time_to |
+| Duration of response | until progression or last visit (months) | response_duration |
+| Progression? | progression during the treatment (1=yes, 0=no) | progression |
+| Duration of treatment | (months) | treatment_duration |
+| Reason to discontinuation | 0=treatment continues | discontinuation_reason |
+| Discontinued because of AE? | 1=yes, 0=no | discontinued_due_to_ae |
+| TTNT | TTNT (x = TTNT not achieved ) | ttnt |
+| TTNT achieved? | 1=yes, 0=no (no "next treatment" given) | ttnt_achieved |
+| Comorbidities |  | comorbidities |
+| Dyslipidemia before bexaroten? | 1=yes, 0=no | dyslipidemia_before |
+| Thyroid disease before bexarotene? | 1=yes, 0=no | thyroid_disease_before |
+| Adverse events (treatment) | (all grades) | ae_complete_all |
+| AE Grade 3 / 4 (event. 5) |  | ae_complete_grade_3_4 |
+| AE Grade 3/4 | 1=yes, 0=no | ae_grade_3_4 |
+| AE hyperTAG any Grade? | 1=yes, 0=no | ae_hyperTAG_any |
+| AE hyperTAG Grade 3/4? | 1=yes, 0=no | ae_hyperTAG_grade_3_4 |
+| AE Liver Tests elevation (any grade) | 1=yes, 0=no | ae_liver |
+| Haematologic AE (any grade) | 1=yes, 0=no | ae_hemato |
+
+# Methods
+
+Design
+- Retrospective observational study of patients receiving bexarotene for cutaneous T‑cell lymphoma. The analysis was pre‑specified as exploratory and hypothesis‑generating.
+
+Data source and reproducibility
+- The analytic dataset (`d04`) was imported via a project initialisation script (`OBJ_01.R`) and, if unavailable, from a versioned snapshot (`reports/markD_03.RData`). Processing steps were scripted in R Markdown to ensure reproducibility; full session details are provided in the Session info.
+
+Participants
+- All cases available in `d04` were eligible. Analytic sample sizes vary by model due to listwise exclusion for missing values in variables required for a given analysis; model‑wise N is reflected by the number of complete cases passed to each model‑fitting step.
+
+Measures
+- Stage. Early‑stage disease was operationalised as a binary factor `stage_early`, with “0” set as the reference where present; numeric/logical encodings were converted to factors.
+- Outcomes.
+  - Time‑to‑event: time to next treatment (TTNT), treatment duration, and response duration. For each, a time variable (months) and a binary event indicator were used. Times were parsed to numeric; the event indicator was harmonised to 0/1 (0 = no event, 1 = event). For treatment duration, any non‑zero value was coded as an event to reflect discontinuation.
+  - Binary: response achieved (`response_achieved`, 0/1).
+  - Continuous/restricted: time to response (`response_time_to`), analysed among observations with strictly positive times (y > 0).
+- Covariates. For sequential adjustments we considered: age, sex, BMI, PS ECOG, first systemic therapy, dyslipidaemia before treatment, thyroid disease before treatment, and monotherapy. Character covariates were analysed as factors; numeric covariates were analysed on their native scale.
+- Discontinuation. The original discontinuation field was binarised (0 if original value was 0; 1 otherwise) for consistency across EDA and survival analyses.
+
+Data preparation
+- Column names were standardised (lower‑snake‑case) and aliases were resolved to canonical variable names. Time variables were parsed with tolerant numeric conversion. Analyses used complete‑case (listwise) handling for the variables required by a given model; no imputation was performed.
+
+Exploratory analysis
+- Descriptive summaries were produced with `skimr`. Pairwise associations between numeric variables were quantified using Spearman’s rank correlation (Hmisc `rcorr` for r and p), visualised via heatmaps (blue = negative, white ≈ 0, red = positive) with non‑significant cells blanked at p ≥ 0.05. Associations between categorical variables and `stage_early` were assessed using Pearson’s chi‑square test when all expected counts were ≥ 5; otherwise Fisher’s exact test was applied.
+
+Primary (main‑effects) models
+- Logistic regression. `response_achieved ~ stage_early`. Effects are reported as odds ratios (OR) with 95% confidence intervals (CI) and two‑sided Wald p‑values. Stage‑specific odds and 95% CI were derived from `emmeans` contrasts to aid interpretation.
+- Cox proportional hazards regression. Each survival endpoint was modelled as `Surv(time, event) ~ stage_early`. Effects are reported as hazard ratios (HR) with 95% CI and two‑sided Wald p‑values. Kaplan–Meier curves (overall and by stage) were generated for descriptive purposes; median survival times and 95% CI (via `survminer::surv_median`) were overlaid as dashed vertical lines coloured to match the strata.
+- Linear regression. `response_time_to ~ stage_early` among observations with y > 0. Effects are reported as mean differences with 95% CI and two‑sided p‑values. Stage‑specific estimates were obtained using `emmeans` contrasts.
+
+Sequentially adjusted models
+- For each prespecified covariate, we fitted outcome `~ stage_early + covariate` and, where feasible, outcome `~ stage_early * covariate` to recover stage‑specific effects using `emmeans`/`emtrends`. Modelling families matched the outcome type (binomial for binary, Cox PH for survival, Gaussian for continuous y > 0). Survival figures are presented as unadjusted KM curves for transparency and comparability.
+
+Assumptions and diagnostics
+- Logistic models were monitored for quasi/complete separation (fitted probabilities approaching 0/1); such cases are flagged by numerical warnings and interpreted cautiously.
+- Cox PH models assume proportional hazards; given limited sample size, formal Schoenfeld residual tests were not uniformly applied and results are considered exploratory.
+- Linear models assume approximate normality and homoscedasticity of residuals; restricting to y > 0 limits structural zero skew.
+
+Statistical reporting and software
+- Consistent with current reporting standards, we provide effect sizes (OR, HR, or mean difference) with 95% CI and exact two‑sided p‑values (α = 0.05). P‑values are not multiplicity‑adjusted and should be interpreted in context. Where relevant, model‑wise sample size and missing‑data handling (complete case) are explicitly stated in the workflow. Analyses were performed in R; package versions and platform details are included in Session info to support reproducibility.
+
+```{r data_import, include=FALSE}
+# Robust import of d04
+obj_candidates <- c(
+  here::here("scripts","functions","OBJ_01.R"),
+  here::here("functions","OBJ_01.R"),
+  here::here("scripts","OBJ_01.R"),
+  here::here("OBJ_01.R")
+)
+ok_src <- FALSE
+for (p in obj_candidates) {
+  if (file.exists(p)) {
+    try(source(p), silent = TRUE)
+    if (exists("d04") && is.data.frame(d04)) { ok_src <- TRUE; break }
+  }
+}
+if (!ok_src) {
+  rdata_path <- here::here("reports","markD_03.RData")
+  if (file.exists(rdata_path)) {
+    env <- new.env(parent = emptyenv()); load(rdata_path, envir = env)
+    if (exists("d04", envir = env)) d04 <- get("d04", envir = env)
+  }
+}
+stopifnot(exists("d04"), is.data.frame(d04))
+
+# Drop identifiers
+if (requireNamespace("tidyselect", quietly = TRUE)) {
+  d04 <- d04 |> dplyr::select(-tidyselect::any_of(c("Initials","initials")))
+} else {
+  d04 <- d04 |> dplyr::select(-any_of(c("Initials","initials")))
+}
+
+# Canonicalize df
+df <- d04 |>
+  janitor::clean_names() |>
+  dplyr::mutate(
+    discontinuation_reason = dplyr::if_else(.data$discontinuation_reason == 0, 0, 1),
+    sex = dplyr::if_else(.data$sex == "M", 1, 0)
+  )
+
+# Alias map and resolve
+alias_map <- list(
+  time_to_next_treatmen = c("ttnt"),
+  ttnt_achieved = c("ttnt_achieved"),
+  treatment_duration = c("treatment_duration"),
+  discontinuation_reason = c("discontinuation_reason"),
+  response_duration = c("response_duration"),
+  progression = c("progression"),
+  response_achieved = c("response_achieved"),
+  response_time_to = c("response_time_to"),
+  stage_early = c("stage_early")
+)
+resolve_col <- function(df, target, aliases) {
+  choices <- unique(c(target, aliases)); hit <- choices[choices %in% names(df)]
+  if (!length(hit)) stop(sprintf("Missing required column: %s", target))
+  hit[1]
+}
+col_time_ttnt <- resolve_col(df, "time_to_next_treatmen", alias_map$time_to_next_treatmen)
+col_event_ttnt <- resolve_col(df, "ttnt_achieved", alias_map$ttnt_achieved)
+col_treat_duration <- resolve_col(df, "treatment_duration", alias_map$treatment_duration)
+col_event_discont <- resolve_col(df, "discontinuation_reason", alias_map$discontinuation_reason)
+col_response_duration <- resolve_col(df, "response_duration", alias_map$response_duration)
+col_event_progression <- resolve_col(df, "progression", alias_map$progression)
+col_response_achieved <- resolve_col(df, "response_achieved", alias_map$response_achieved)
+col_response_time_to <- resolve_col(df, "response_time_to", alias_map$response_time_to)
+col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+
+# Coerce stage factor with reference 0 when possible
+if (is.numeric(df[[col_stage]]) || is.logical(df[[col_stage]])) {
+  df[[col_stage]] <- factor(df[[col_stage]])
+}
+if (is.factor(df[[col_stage]]) && "0" %in% levels(df[[col_stage]])) {
+  df[[col_stage]] <- stats::relevel(df[[col_stage]], ref = "0")
+} else if (is.factor(df[[col_stage]]) && "No" %in% levels(df[[col_stage]])) {
+  df[[col_stage]] <- stats::relevel(df[[col_stage]], ref = "No")
+} else {
+  df[[col_stage]] <- factor(df[[col_stage]])
+}
+```
+# EDA
+
+## Skim summary
+```{r eda_skim_tbl}
+sk_tbl <- skimr::skim(df)
+rio::export(as.data.frame(sk_tbl), here::here("reports","tables","eda_skim_summary.xlsx"))
+knitr::kable(head(as.data.frame(sk_tbl), 20)) %>%
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+  kableExtra::collapse_rows(columns = 1, valign = "top") %>%
+  kableExtra::footnote(general = "First 20 rows of skimr summary; full table exported to reports/tables/eda_skim_summary.xlsx.", threeparttable = TRUE)
+```
+
+```{r eda_skim_desc, results='asis'}
+N <- nrow(df); P <- ncol(df)
+num_n <- sum(vapply(df, is.numeric, logical(1)))
+fac_n <- sum(vapply(df, function(x) is.factor(x) || is.character(x), logical(1)))
+miss_cols <- vapply(df, function(x) sum(is.na(x)), integer(1))
+miss_cols <- miss_cols[miss_cols > 0]
+if (length(miss_cols)) {
+  top_miss <- paste(utils::head(names(sort(miss_cols, decreasing = TRUE)), 5), collapse = ", ")
+  cat(sprintf("Dataset comprises %d observations and %d variables (%d numeric, %d categorical). Missing values present in %d variables (e.g., %s).\n", N, P, num_n, fac_n, length(miss_cols), top_miss))
+} else {
+  cat(sprintf("Dataset comprises %d observations and %d variables (%d numeric, %d categorical). No missing values detected.\n", N, P, num_n, fac_n))
+}
+```
+
+```{r eda_skim_key, results='asis'}
+cat("Key findings: The analytic file is well‑defined with the noted mixture of numeric and categorical variables; missingness is limited to a subset of columns and will be handled via complete‑case analysis in downstream models. No data imputation was applied.\n")
+```
+
+Key findings: The analytic cohort included a total of `r nrow(df)` subjects.`r if ("age" %in% names(df) && is.numeric(df$age)) { qs <- stats::quantile(df$age, c(0.25,0.5,0.75), na.rm=TRUE); paste0(" Median age ", sprintf("%.1f", qs[2]), " years (IQR ", sprintf("%.1f", qs[1]), "–", sprintf("%.1f", qs[3]), ").") } else { "" }` `r if ("sex" %in% names(df)) { sx <- df$sex; if (is.numeric(sx) || is.logical(sx)) { nM <- sum(sx == 1, na.rm=TRUE); nF <- sum(sx == 0, na.rm=TRUE) } else { lev <- tolower(trimws(as.character(sx))); nM <- sum(lev %in% c("m","male","muz","muž"), na.rm=TRUE); nF <- sum(lev %in% c("f","female","zena","žena"), na.rm=TRUE) }; denom <- nM + nF; if (is.finite(denom) && denom>0) { paste0(" Sex: men ", nM, " (", sprintf("%.1f", 100*nM/denom), "%), women ", nF, " (", sprintf("%.1f", 100*nF/denom), "%).") } else { "" } } else { "" }` `r if ("stage_early" %in% names(df)) { st <- df$stage_early; if (is.numeric(st) || is.logical(st)) { n1 <- sum(st == 1, na.rm=TRUE); n0 <- sum(st == 0, na.rm=TRUE) } else { lev <- tolower(trimws(as.character(st))); n1 <- sum(lev %in% c("1","yes","ano","early","true"), na.rm=TRUE); n0 <- sum(lev %in% c("0","no","ne","late","false"), na.rm=TRUE) }; denom <- n0 + n1; if (is.finite(denom) && denom>0) { paste0(" Early-stage disease: yes ", n1, " (", sprintf("%.1f", 100*n1/denom), "%), no ", n0, " (", sprintf("%.1f", 100*n0/denom), "%).") } else { "" } } else { "" }`
+
+## Correlation (Spearman) for numeric variables
+Goal: quantify pairwise associations among numeric variables. Method: Spearman’s rank correlation (rho) with p-values (Hmisc `rcorr` when available), visualised via a lower-triangle heatmap (`corrplot`) with non-significant cells masked at alpha = 0.05. Correlation matrices (r and p) and a tidy top-pairs table are exported for reference.
+```{r eda_corr_fig}
+num_cols <- names(df)[sapply(df, is.numeric)]
+if (length(num_cols) >= 2 && requireNamespace("corrplot", quietly = TRUE)) {
+  suppressPackageStartupMessages(library(corrplot))
+  r <- suppressWarnings(cor(df[num_cols], use = "pairwise.complete.obs", method = "spearman"))
+  p <- matrix(NA_real_, nrow = ncol(df[num_cols]), ncol = ncol(df[num_cols]))
+  colnames(p) <- colnames(r); rownames(p) <- rownames(r)
+  if (requireNamespace("Hmisc", quietly = TRUE)) {
+    Hmisc_res <- Hmisc::rcorr(as.matrix(df[num_cols]), type = "spearman")
+    r <- Hmisc_res$r; p <- Hmisc_res$P
+  }
+  rio::export(as.data.frame(r), here::here("reports","tables","eda_corr_spearman_r.xlsx"))
+  rio::export(as.data.frame(p), here::here("reports","tables","eda_corr_spearman_p.xlsx"))
+  p[is.na(p)] <- 1; r[is.na(r)] <- 0
+  tiff_path <- here::here("reports","figs","eda_corr_spearman.tiff")
+  png_path  <- here::here("reports","figs","eda_corr_spearman.png")
+  grDevices::tiff(tiff_path, width = 1800, height = 1600, res = 150, compression = "lzw")
+  corrplot::corrplot(r, method = "color", type = "lower", tl.col = "black", tl.srt = 45,
+                     p.mat = p, sig.level = 0.05, insig = "blank",
+                     col = colorRampPalette(c("#2166AC","white","#B2182B"))(200))
+  grDevices::dev.off()
+  grDevices::png(png_path, width = 1800, height = 1600, res = 150)
+  corrplot::corrplot(r, method = "color", type = "lower", tl.col = "black", tl.srt = 45,
+                     p.mat = p, sig.level = 0.05, insig = "blank",
+                     col = colorRampPalette(c("#2166AC","white","#B2182B"))(200))
+  grDevices::dev.off()
+  # Prepare tidy correlation table for the next chunk
+  suppressWarnings({
+    rn <- rownames(r); cn <- colnames(r)
+    pairs <- expand.grid(var1 = rn, var2 = cn, stringsAsFactors = FALSE)
+    pairs <- pairs[pairs$var1 < pairs$var2, ]
+    eda_corr_tbl <- dplyr::mutate(pairs,
+      rho = mapply(function(a,b) r[a,b], var1, var2),
+      p   = mapply(function(a,b) p[a,b], var1, var2)
+    )
+  })
+}
+```
+
+```{r eda_corr_tbl}
+if (exists("eda_corr_tbl")) {
+  top <- eda_corr_tbl |> dplyr::filter(is.finite(rho), is.finite(p)) |>
+    dplyr::arrange(dplyr::desc(abs(rho))) |>
+    dplyr::slice_head(n = 15)
+  knitr::kable(top, digits = 3, col.names = c("Variable 1","Variable 2","Spearman rho","p-value")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+    kableExtra::collapse_rows(columns = 1, valign = "top") %>%
+    kableExtra::footnote(general = "Top absolute Spearman correlations among numeric variables (unadjusted p-values).", threeparttable = TRUE)
+}
+```
+
+```{r eda_corr_desc, results='asis'}
+if (exists("eda_corr_tbl")) {
+  sig_n <- sum(!is.na(eda_corr_tbl$p) & eda_corr_tbl$p < 0.05)
+  strong_n <- sum(is.finite(eda_corr_tbl$rho) & abs(eda_corr_tbl$rho) >= 0.5)
+  cat(sprintf("Across numeric variables, we observed %d significant pairwise associations at α = 0.05 (uncorrected), including %d strong correlations (|rho| ≥ 0.5). Correlations are descriptive and may reflect collinearity or shared measurement structure; causal interpretation is not implied.\n", sig_n, strong_n))
+}
+```
+
+```{r eda_corr_key, results='asis'}
+if (exists("eda_corr_tbl")) {
+  top3 <- eda_corr_tbl |> dplyr::filter(is.finite(rho), is.finite(p)) |>
+    dplyr::arrange(dplyr::desc(abs(rho))) |>
+    dplyr::slice_head(n = 3)
+  if (nrow(top3) > 0) {
+    desc <- paste(sprintf("%s–%s (rho = %.2f; p = %.3f)", top3$var1, top3$var2, top3$rho, top3$p), collapse = "; ")
+    cat(sprintf("Key findings: The strongest numeric associations were %s. These patterns may indicate collinearity or shared constructs and will be considered when interpreting multivariable models.\n", desc))
+  } else {
+    cat("Key findings: No strong pairwise numeric associations were detected; risk of collinearity appears limited.\n")
+  }
+}
+```
+
+```{r eda_corr_fig_show, echo=FALSE, message=FALSE, warning=FALSE}
+# Display correlation heatmap if it exists (prefer PNG for HTML)
+fp_png <- here::here("reports","figs","eda_corr_spearman.png")
+fp_tif <- here::here("reports","figs","eda_corr_spearman.tiff")
+fp2    <- here::here("output","figures","eda_corrplot_spearman_v2.tiff")
+to_show <- if (file.exists(fp_png)) fp_png else if (file.exists(fp_tif)) fp_tif else if (file.exists(fp2)) fp2 else NA_character_
+if (!is.na(to_show)) knitr::include_graphics(to_show)
+```
+
+```{r eda_corr_eval_prep, include=FALSE}
+if (exists("eda_corr_tbl")) {
+  k <- if (exists("num_cols")) length(num_cols) else length(unique(c(eda_corr_tbl$var1, eda_corr_tbl$var2)))
+  sig <- eda_corr_tbl |>
+    dplyr::filter(is.finite(rho), is.finite(p), p < 0.05) |>
+    dplyr::arrange(dplyr::desc(abs(rho)))
+  if (nrow(sig) > 0) {
+    fmt <- function(v1, v2, r, p) {
+      ptxt <- ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p)))
+      paste0(v1, "–", v2, " (", "\u03C1 = ", sprintf("%.2f", r), ", ", ptxt, ")")
+    }
+    items <- mapply(fmt, sig$var1, sig$var2, sig$rho, sig$p, USE.NAMES = FALSE)
+    pairs_text <- paste(items, collapse = "; ")
+    corr_eval_txt <- sprintf(
+      "We analyzed %d numeric variables. Significant pairwise correlations (Spearman, alpha = 0.05; unadjusted p-values): %d. Significant associations: %s.",
+      k, nrow(sig), pairs_text
+    )
+  } else {
+    corr_eval_txt <- sprintf(
+      "We analyzed %d numeric variables. No significant pairwise correlations were detected (Spearman, alpha = 0.05).",
+      k
+    )
+  }
+}
+```
+
+`r if (exists("corr_eval_txt")) corr_eval_txt`
+
+## Factor vs stage_early tests
+Goal: assess association between each categorical variable and `stage_early`. Method: Pearson’s chi-square test when all expected counts are >= 5; otherwise Fisher’s exact test. P-values are unadjusted; results are summarised in a table and a brief narrative.
+```{r eda_factor_tbl}
+fac_cols <- names(df)[sapply(df, function(x) is.factor(x) || is.character(x))]
+fac_cols <- setdiff(fac_cols, col_stage)
+res <- list()
+for (v in fac_cols) {
+  dsub <- df |>
+    dplyr::select(var = .data[[v]], stage = .data[[col_stage]]) |>
+    dplyr::mutate(var = as.factor(var), stage = as.factor(stage)) |>
+    tidyr::drop_na()
+  if (nrow(dsub) == 0 || nlevels(dsub$var) < 2 || nlevels(dsub$stage) < 2) next
+  tbl <- table(dsub$var, dsub$stage)
+  chi <- try(chisq.test(tbl, correct = FALSE), silent = TRUE)
+  if (!inherits(chi, "try-error") && all(chi$expected >= 5, na.rm = TRUE)) {
+    res[[length(res) + 1]] <- tibble::tibble(variable = v, method = "chisq", p.value = chi$p.value)
+  } else {
+    fe <- try(fisher.test(tbl), silent = TRUE)
+    if (!inherits(fe, "try-error")) res[[length(res) + 1]] <- tibble::tibble(variable = v, method = "fisher", p.value = fe$p.value)
+  }
+}
+if (length(res)) {
+  fac_tests <- dplyr::bind_rows(res)
+  rio::export(fac_tests, here::here("reports","tables","eda_factor_vs_stage.xlsx"))
+  knitr::kable(fac_tests, digits = 3) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+    kableExtra::collapse_rows(columns = 1, valign = "top") %>%
+    kableExtra::footnote(general = "Association tests between factors and stage_early (Pearson’s chi-square when all expected counts ≥ 5; otherwise Fisher’s exact). Unadjusted p-values.", threeparttable = TRUE)
+}
+```
+
+```{r eda_factor_desc, results='asis'}
+if (exists("fac_tests")) {
+  sig <- fac_tests |> dplyr::filter(!is.na(p.value) & p.value < 0.05) |> dplyr::arrange(variable)
+  if (nrow(sig) > 0) {
+    listed <- paste(sprintf("%s (method: %s, p = %.3f)", sig$variable, sig$method, sig$p.value), collapse = "; ")
+    cat(sprintf("Factor–stage comparisons identified the following significant associations at α = 0.05: %s. Tests were exploratory and p-values were not adjusted for multiplicity.\n", listed))
+  } else {
+    cat("No categorical variables showed a statistically significant association with stage_early at α = 0.05.\n")
+  }
+}
+```
+
+```{r eda_factor_key, results='asis'}
+if (exists("fac_tests")) {
+  sig <- fac_tests |> dplyr::filter(!is.na(p.value) & p.value < 0.05)
+  if (nrow(sig) > 0) {
+    vars <- paste(unique(sig$variable), collapse = ", ")
+    cat(sprintf("Key findings: One or more categorical variables showed differential distribution by stage_early (e.g., %s). These findings are descriptive and inform subsequent modelling.\n", vars))
+  } else {
+    cat("Key findings: No categorical variables showed statistically significant differences by stage_early; group balance appears acceptable for exploratory modelling.\n")
+  }
+}
+```
+
+```{r eda_numeric_distrib_show, echo=FALSE, message=FALSE, warning=FALSE}
+# Display numeric distributions panel if generated by standalone script
+fp_nd <- here::here("output","figures","eda_numeric_distributions.tiff")
+if (file.exists(fp_nd)) knitr::include_graphics(fp_nd)
+```
+
+```{r eda_factor_eval_prep, include=FALSE}
+if (exists("fac_tests")) {
+  k_fac <- length(unique(fac_tests$variable))
+  sig_fac <- fac_tests |>
+    dplyr::filter(is.finite(p.value), p.value < 0.05) |>
+    dplyr::arrange(variable)
+  if (nrow(sig_fac) > 0) {
+    fmt_p <- function(p) ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p)))
+    items <- paste0(sig_fac$variable, " (", sig_fac$method, ", ", vapply(sig_fac$p.value, fmt_p, character(1)), ")")
+    items_text <- paste(items, collapse = "; ")
+    fac_eval_txt <- sprintf(
+      "We analyzed %d categorical variables for association with stage_early. Significant associations (alpha = 0.05; unadjusted p-values): %d. Significant variables: %s.",
+      k_fac, nrow(sig_fac), items_text
+    )
+  } else {
+    fac_eval_txt <- sprintf(
+      "We analyzed %d categorical variables for association with stage_early. No significant associations were detected (alpha = 0.05).",
+      k_fac
+    )
+  }
+}
+```
+
+`r if (exists("fac_eval_txt")) fac_eval_txt`
+
+# Statistics
+
+## Main models
+
+```{r main-models}
+# Helper utilities from standalone (lightweight re-impl)
+fmt_ci <- function(a,b) ifelse(is.na(a) | is.na(b), NA_character_, sprintf("[%.3f, %.3f]", a, b))
+pick_contrast_level <- function(x){ xf <- as.factor(x); levs <- levels(xf); if (length(levs)<=1) return(NULL); ref <- levs[1]; cand <- levs[levs!=ref]; if (!length(cand)) return(NULL); cand[1] }
+
+# Logistic: response_achieved ~ stage
+df_log <- df |>
+  dplyr::select(y = dplyr::all_of(col_response_achieved), stage = dplyr::all_of(col_stage)) |>
+  dplyr::filter(!is.na(y), !is.na(stage)) |>
+  dplyr::mutate(y = as.factor(y))
+mod_log <- tryCatch(stats::glm(y ~ stage, data = df_log, family = stats::binomial()), error = function(e) NULL)
+log_all <- if (!is.null(mod_log)) broom::tidy(mod_log, conf.int = TRUE, exponentiate = TRUE) |>
+  dplyr::filter(.data$term == "stage1" | stringr::str_detect(.data$term,"stage")) |>
+  dplyr::slice(1) |>
+  dplyr::transmute(estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+
+# Cox PH: three endpoints
+km_specs <- list(
+  list(label = "time_to_next_treatment", time = col_time_ttnt, event = col_event_ttnt),
+  list(label = "treatment_duration",     time = col_treat_duration, event = col_event_discont),
+  list(label = "response_duration",      time = col_response_duration, event = col_event_progression)
+)
+cox_main <- lapply(km_specs, function(sp){
+  d <- df |>
+    dplyr::select(time = dplyr::all_of(sp$time), event = dplyr::all_of(sp$event), stage = dplyr::all_of(col_stage)) |>
+    dplyr::mutate(time = suppressWarnings(readr::parse_number(as.character(.data$time))), event = ensure_binary_event(.data$event), stage = as.factor(.data$stage)) |>
+    (\(d) if (identical(sp$label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
+  if (nrow(d) == 0 || length(unique(d$stage))<2) return(NULL)
+  m <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage, data = d), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  broom::tidy(m, conf.int = TRUE, exponentiate = TRUE) |>
+    dplyr::filter(stringr::str_detect(.data$term, "stage")) |>
+    dplyr::slice(1) |>
+    dplyr::transmute(outcome = sp$label, estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+})
+cox_main <- dplyr::bind_rows(Filter(Negate(is.null), cox_main))
+
+# Linear: response_time_to ~ stage, y>0
+df_lin <- df |>
+  dplyr::select(y = dplyr::all_of(col_response_time_to), stage = dplyr::all_of(col_stage)) |>
+  dplyr::filter(!is.na(y), !is.na(stage), y>0)
+mod_lin <- tryCatch(stats::lm(y ~ stage, data = df_lin), error = function(e) NULL)
+lin_all <- if (!is.null(mod_lin)) broom::tidy(mod_lin, conf.int = TRUE) |>
+  dplyr::filter(stringr::str_detect(.data$term, "stage")) |>
+  dplyr::slice(1) |>
+  dplyr::transmute(estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+
+main_rows <- list(
+  tibble::tibble(outcome = "response_achieved", p_all = log_all$p.value, effect_all = log_all$estimate, effect_all_ci = fmt_ci(log_all$conf.low, log_all$conf.high)),
+  dplyr::bind_rows(cox_main) |>
+    dplyr::transmute(outcome = .data$outcome, p_all = .data$p.value, effect_all = .data$estimate, effect_all_ci = fmt_ci(.data$conf.low, .data$conf.high)),
+  tibble::tibble(outcome = "response_time_to", p_all = lin_all$p.value, effect_all = lin_all$estimate, effect_all_ci = fmt_ci(lin_all$conf.low, lin_all$conf.high))
+)
+summary_main_models <- dplyr::bind_rows(main_rows)
+
+# KM medians by stage and merge into v2
+compute_km_medians_by_stage <- function(df, time_col, event_col, stage_col, label){
+  d <- df |>
+    dplyr::select(time = dplyr::all_of(time_col), event = dplyr::all_of(event_col), stage = dplyr::all_of(stage_col)) |>
+    dplyr::mutate(time = suppressWarnings(readr::parse_number(as.character(.data$time))), event = ensure_binary_event(.data$event), stage = as.factor(.data$stage)) |>
+    (\(d) if (identical(label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
+  if (nrow(d) == 0) return(tibble::tibble(outcome = label, stage = factor(NA), median = NA_real_, lcl = NA_real_, ucl = NA_real_))
+  fit <- survival::survfit(survival::Surv(time, event) ~ stage, data = d)
+  td <- try(survminer::surv_median(fit), silent = TRUE)
+  if (inherits(td, "try-error")) return(tibble::tibble(outcome = label, stage = factor(NA), median = NA_real_, lcl = NA_real_, ucl = NA_real_))
+  td |>
+    dplyr::transmute(outcome = label, stage = .data$strata |>
+                       stringr::str_replace("^stage=", "") |>
+                       factor(levels = levels(d$stage)),
+                     median = .data$median, lcl = .data$lower, ucl = .data$upper)
+}
+km_meds <- purrr::map_dfr(km_specs, function(sp) compute_km_medians_by_stage(df, sp$time, sp$event, col_stage, sp$label))
+km_meds_wide <- km_meds |>
+  dplyr::filter(!is.na(stage)) |>
+  dplyr::mutate(stage = as.character(stage)) |>
+  tidyr::pivot_wider(id_cols = outcome, names_from = stage, values_from = c(median, lcl, ucl), names_sep = "_")
+add_ci_fmt <- function(low, high) ifelse(is.na(low) | is.na(high), NA_character_, sprintf("[%.2f, %.2f]", low, high))
+km_meds_fmt <- km_meds_wide |>
+  dplyr::mutate(median_stage0 = .data[["median_0"]], median_stage0_ci = add_ci_fmt(.data[["lcl_0"]], .data[["ucl_0"]]),
+                median_stage1 = .data[["median_1"]], median_stage1_ci = add_ci_fmt(.data[["lcl_1"]], .data[["ucl_1"]])) |>
+  dplyr::select(outcome, median_stage0, median_stage0_ci, median_stage1, median_stage1_ci)
+summary_main_models_v2 <- summary_main_models |>
+  dplyr::left_join(km_meds_fmt, by = "outcome")
+
+rio::export(summary_main_models_v2, here::here("reports","tables","summary_main_models_v2.xlsx"))
+knitr::kable(summary_main_models_v2) %>%
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+  kableExtra::collapse_rows(columns = 1, valign = "top") %>%
+  kableExtra::footnote(general = "Main models summary. For survival outcomes, stage-specific entries show Kaplan–Meier median survival times with 95% CI.", threeparttable = TRUE)
+```
+
+```{r main-eval-prep, include=FALSE}
+# Helpers for formatting
+fmt_p <- function(p) ifelse(is.na(p), "p = NA", ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p))))
+fmt_ci <- function(a,b, digits = 2) ifelse(is.na(a) | is.na(b), "[NA, NA]", sprintf("[%.2f, %.2f]", a, b))
+
+# LOGISTIC: response_achieved ~ stage
+main_eval_log_txt <- NULL
+if (exists("mod_log") && !is.null(mod_log) && exists("log_all") && nrow(log_all) == 1) {
+  or   <- as.numeric(log_all$estimate[1])
+  lcl  <- as.numeric(log_all$conf.low[1])
+  ucl  <- as.numeric(log_all$conf.high[1])
+  pval <- as.numeric(log_all$p.value[1])
+  # Stage-specific probabilities via emmeans
+  eml <- tryCatch({
+    emmeans::emmeans(mod_log, ~ stage, type = "response") |> as.data.frame()
+  }, error = function(e) NULL)
+  if (!is.null(eml) && all(c("stage","prob","asymp.LCL","asymp.UCL") %in% names(eml))) {
+    # ensure levels 0 and 1 if present
+    p0 <- eml[as.character(eml$stage) %in% c("0",0),]
+    p1 <- eml[as.character(eml$stage) %in% c("1",1),]
+    p0_txt <- if (nrow(p0)==1) sprintf("stage_early = 0: %.2f (95%% CI %s)", p0$prob[1], fmt_ci(p0$asymp.LCL[1], p0$asymp.UCL[1])) else NA_character_
+    p1_txt <- if (nrow(p1)==1) sprintf("stage_early = 1: %.2f (95%% CI %s)", p1$prob[1], fmt_ci(p1$asymp.LCL[1], p1$asymp.UCL[1])) else NA_character_
+    bystage <- paste(na.omit(c(p0_txt, p1_txt)), collapse = "; ")
+  } else {
+    bystage <- NULL
+  }
+  main_eval_log_txt <- paste0(
+    "We modeled response_achieved using logistic regression with stage_early as the predictor. ",
+    "In all patients, the effect of stage_early (1 vs 0) was OR = ", sprintf("%.2f", or),
+    " (95% CI ", sprintf("[%.2f, %.2f]", lcl, ucl), ", ", fmt_p(pval), ").",
+    if (!is.null(bystage) && nzchar(bystage)) paste0(" Estimated response probabilities by stage: ", bystage, ".") else ""
+  )
+}
+
+# LINEAR: response_time_to ~ stage among y>0
+main_eval_lin_txt <- NULL
+if (exists("mod_lin") && !is.null(mod_lin) && exists("lin_all") && nrow(lin_all) == 1) {
+  md   <- as.numeric(lin_all$estimate[1])
+  lcl  <- as.numeric(lin_all$conf.low[1])
+  ucl  <- as.numeric(lin_all$conf.high[1])
+  pval <- as.numeric(lin_all$p.value[1])
+  eml <- tryCatch({
+    emmeans::emmeans(mod_lin, ~ stage) |> as.data.frame()
+  }, error = function(e) NULL)
+  if (!is.null(eml) && all(c("stage","emmean","lower.CL","upper.CL") %in% names(eml))) {
+    m0 <- eml[as.character(eml$stage) %in% c("0",0),]
+    m1 <- eml[as.character(eml$stage) %in% c("1",1),]
+    m0_txt <- if (nrow(m0)==1) sprintf("stage_early = 0: %.2f (95%% CI %s)", m0$emmean[1], fmt_ci(m0$lower.CL[1], m0$upper.CL[1])) else NA_character_
+    m1_txt <- if (nrow(m1)==1) sprintf("stage_early = 1: %.2f (95%% CI %s)", m1$emmean[1], fmt_ci(m1$lower.CL[1], m1$upper.CL[1])) else NA_character_
+    bystage_lin <- paste(na.omit(c(m0_txt, m1_txt)), collapse = "; ")
+  } else {
+    bystage_lin <- NULL
+  }
+  main_eval_lin_txt <- paste0(
+    "We modeled response_time_to (restricted to y > 0) using linear regression with stage_early as the predictor. ",
+    "In all patients, the mean difference (1 vs 0) was ", sprintf("%.2f", md),
+    " (95% CI ", sprintf("[%.2f, %.2f]", lcl, ucl), ", ", fmt_p(pval), ").",
+    if (!is.null(bystage_lin) && nzchar(bystage_lin)) paste0(" Estimated means by stage: ", bystage_lin, ".") else ""
+  )
+}
+
+# SURVIVAL: Surv(time, event) ~ stage for each endpoint
+main_eval_surv_txt <- NULL
+if (exists("cox_main") && is.data.frame(cox_main) && nrow(cox_main) > 0) {
+  # Join with KM medians by stage prepared above (km_meds_fmt)
+  surv_join <- tryCatch({
+    dplyr::left_join(cox_main, km_meds_fmt, by = c("outcome" = "outcome"))
+  }, error = function(e) NULL)
+  if (!is.null(surv_join) && nrow(surv_join) > 0) {
+    items <- apply(surv_join, 1, function(row){
+      hr <- as.numeric(row[["estimate"]]); lcl <- as.numeric(row[["conf.low"]]); ucl <- as.numeric(row[["conf.high"]]); p <- as.numeric(row[["p.value"]])
+      m0 <- as.numeric(row[["median_stage0"]]); m1 <- as.numeric(row[["median_stage1"]])
+      ci0 <- as.character(row[["median_stage0_ci"]]); ci1 <- as.character(row[["median_stage1_ci"]])
+      paste0(
+        row[["outcome"]], ": HR = ", sprintf("%.2f", hr), " (95% CI ", sprintf("[%.2f, %.2f]", lcl, ucl), ", ", fmt_p(p), "); ",
+        "KM medians — stage_early = 0: ", ifelse(is.finite(m0), sprintf("%.2f", m0), "NA"), " ", ifelse(is.na(ci0), "", paste0(ci0)), "; ",
+        "stage_early = 1: ", ifelse(is.finite(m1), sprintf("%.2f", m1), "NA"), " ", ifelse(is.na(ci1), "", paste0(ci1))
+      )
+    })
+    main_eval_surv_txt <- paste0(
+      "We fitted Cox proportional hazards models for survival endpoints with stage_early as the predictor. ",
+      "Across outcomes: ", paste(items, collapse = ". "), "."
+    )
+  }
+}
+```
+
+### Logistic results
+
+```{r main-table-log}
+tbl_main_log <- NULL
+if (exists("mod_log") && !is.null(mod_log) && exists("log_all") && nrow(log_all) == 1) {
+  or   <- as.numeric(log_all$estimate[1])
+  lcl  <- as.numeric(log_all$conf.low[1])
+  ucl  <- as.numeric(log_all$conf.high[1])
+  pval <- as.numeric(log_all$p.value[1])
+  eml <- tryCatch({ emmeans::emmeans(mod_log, ~ stage, type = "response") |> as.data.frame() }, error = function(e) NULL)
+  p0 <- p1 <- NA_real_; p0_ci <- p1_ci <- NA_character_
+  if (!is.null(eml) && all(c("stage","prob","asymp.LCL","asymp.UCL") %in% names(eml))) {
+    r0 <- eml[as.character(eml$stage) %in% c("0",0),]
+    r1 <- eml[as.character(eml$stage) %in% c("1",1),]
+    if (nrow(r0)==1) { p0 <- r0$prob[1]; p0_ci <- sprintf("[%.2f, %.2f]", r0$asymp.LCL[1], r0$asymp.UCL[1]) }
+    if (nrow(r1)==1) { p1 <- r1$prob[1]; p1_ci <- sprintf("[%.2f, %.2f]", r1$asymp.LCL[1], r1$asymp.UCL[1]) }
+  }
+  tbl_main_log <- tibble::tibble(
+    outcome = "response_achieved",
+    OR = sprintf("%.2f", or), CI95 = sprintf("[%.2f, %.2f]", lcl, ucl), p = ifelse(pval < 0.001, "<0.001", sprintf("%.3f", pval)),
+    stage0_prob = ifelse(is.finite(p0), sprintf("%.2f", p0), NA_character_), stage0_CI95 = p0_ci,
+    stage1_prob = ifelse(is.finite(p1), sprintf("%.2f", p1), NA_character_), stage1_CI95 = p1_ci
+  )
+  rio::export(tbl_main_log, here::here("reports","tables","main_logistic_summary.xlsx"))
+  knitr::kable(tbl_main_log, col.names = c("outcome","OR","95% CI","p","stage_early=0 prob","95% CI","stage_early=1 prob","95% CI")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+}
+```
+
+`r if (exists("main_eval_log_txt")) main_eval_log_txt`
+
+### Survival results
+
+```{r main-table-surv}
+tbl_main_surv <- NULL
+if (exists("cox_main") && is.data.frame(cox_main) && nrow(cox_main) > 0) {
+  surv_join <- dplyr::left_join(cox_main, km_meds_fmt, by = "outcome") |>
+    dplyr::transmute(outcome,
+                     HR = sprintf("%.2f", estimate), CI95 = sprintf("[%.2f, %.2f]", conf.low, conf.high), p = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value)),
+                     median_stage0 = ifelse(is.finite(median_stage0), sprintf("%.2f", median_stage0), NA_character_), median_stage0_CI95 = median_stage0_ci,
+                     median_stage1 = ifelse(is.finite(median_stage1), sprintf("%.2f", median_stage1), NA_character_), median_stage1_CI95 = median_stage1_ci)
+  tbl_main_surv <- surv_join
+  rio::export(tbl_main_surv, here::here("reports","tables","main_survival_summary.xlsx"))
+  knitr::kable(tbl_main_surv, col.names = c("outcome","HR","95% CI","p","median (stage_early=0)","95% CI","median (stage_early=1)","95% CI")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+    kableExtra::collapse_rows(columns = 1, valign = "top")
+}
+```
+
+`r if (exists("main_eval_surv_txt")) main_eval_surv_txt`
+
+### Linear results
+
+```{r main-table-lin}
+tbl_main_lin <- NULL
+if (exists("mod_lin") && !is.null(mod_lin) && exists("lin_all") && nrow(lin_all) == 1) {
+  md   <- as.numeric(lin_all$estimate[1])
+  lcl  <- as.numeric(lin_all$conf.low[1])
+  ucl  <- as.numeric(lin_all$conf.high[1])
+  pval <- as.numeric(lin_all$p.value[1])
+  eml <- tryCatch({ emmeans::emmeans(mod_lin, ~ stage) |> as.data.frame() }, error = function(e) NULL)
+  m0 <- m1 <- NA_real_; m0_ci <- m1_ci <- NA_character_
+  if (!is.null(eml) && all(c("stage","emmean","lower.CL","upper.CL") %in% names(eml))) {
+    r0 <- eml[as.character(eml$stage) %in% c("0",0),]
+    r1 <- eml[as.character(eml$stage) %in% c("1",1),]
+    if (nrow(r0)==1) { m0 <- r0$emmean[1]; m0_ci <- sprintf("[%.2f, %.2f]", r0$lower.CL[1], r0$upper.CL[1]) }
+    if (nrow(r1)==1) { m1 <- r1$emmean[1]; m1_ci <- sprintf("[%.2f, %.2f]", r1$lower.CL[1], r1$upper.CL[1]) }
+  }
+  tbl_main_lin <- tibble::tibble(
+    outcome = "response_time_to",
+    mean_diff = sprintf("%.2f", md), CI95 = sprintf("[%.2f, %.2f]", lcl, ucl), p = ifelse(pval < 0.001, "<0.001", sprintf("%.3f", pval)),
+    mean_stage0 = ifelse(is.finite(m0), sprintf("%.2f", m0), NA_character_), mean_stage0_CI95 = m0_ci,
+    mean_stage1 = ifelse(is.finite(m1), sprintf("%.2f", m1), NA_character_), mean_stage1_CI95 = m1_ci
+  )
+  rio::export(tbl_main_lin, here::here("reports","tables","main_linear_summary.xlsx"))
+  knitr::kable(tbl_main_lin, col.names = c("outcome","mean diff (1-0)","95% CI","p","mean (stage_early=0)","95% CI","mean (stage_early=1)","95% CI")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+}
+```
+
+`r if (exists("main_eval_lin_txt")) main_eval_lin_txt`
+
+### Main figures
+
+```{r main_fig}
+# Inline display of Main model figures with titles per outcome
+for (sp in km_specs) {
+  d <- df |>
+    dplyr::select(time = dplyr::all_of(sp$time),
+                  event = dplyr::all_of(sp$event),
+                  stage = dplyr::all_of(col_stage)) |>
+    dplyr::mutate(
+      time  = suppressWarnings(readr::parse_number(as.character(.data$time))),
+      event = ensure_binary_event(.data$event),
+      stage = as.factor(.data$stage)
+    ) |>
+    (\(d) if (identical(sp$label, "treatment_duration"))
+          dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+    dplyr::filter(!is.na(time), !is.na(event))
+
+  if (nrow(d) < 5) next
+
+  # Overall
+  f_all <- survival::survfit(survival::Surv(time, event) ~ 1, data = d)
+  pal_all <- "#1f78b4"
+  p_left <- survminer::ggsurvplot(f_all, data = d, conf.int = TRUE, legend = "none", palette = pal_all)$plot +
+    ggplot2::ggtitle(paste0(sp$label, " (All)"))
+  md_all <- survminer::surv_median(f_all)
+  if (isTRUE(is.finite(md_all$median[1])))
+    p_left <- p_left + ggplot2::geom_vline(xintercept = md_all$median[1], linetype = "dashed", color = pal_all)
+
+  # By-stage
+  f_by <- survival::survfit(survival::Surv(time, event) ~ stage, data = d)
+  p_right_list <- survminer::ggsurvplot(f_by, data = d, conf.int = TRUE)
+  p_right <- p_right_list$plot + ggplot2::ggtitle(paste0(sp$label, " (By stage)"))
+  str_order <- unique(as.character(p_right$data$strata))
+  pal <- scales::hue_pal()(length(str_order))
+  p_right <- p_right + ggplot2::scale_color_manual(values = stats::setNames(pal, str_order))
+  md_by <- survminer::surv_median(f_by)
+  for (i in seq_along(str_order)) {
+    v <- md_by$median[md_by$strata == str_order[i]]
+    if (length(v) == 1 && is.finite(v))
+      p_right <- p_right + ggplot2::geom_vline(xintercept = v, linetype = "dashed", color = pal[i])
+  }
+
+  if (requireNamespace("cowplot", quietly = TRUE)) {
+    print(cowplot::plot_grid(p_left, p_right, ncol = 2))
+  } else {
+    print(p_left); print(p_right)
+  }
+}
+```
+
+
+```{r helper_functions, include=FALSE}
+# Format CI
+fmt_ci <- function(a, b) ifelse(is.na(a) | is.na(b), NA_character_, sprintf("[%.3f, %.3f]", as.numeric(a), as.numeric(b)))
+
+# Coerce events to 0/1
+ensure_binary_event <- function(v) {
+  if (is.numeric(v)) return(ifelse(is.na(v), NA_integer_, ifelse(v == 0, 0L, 1L)))
+  if (is.logical(v)) return(ifelse(is.na(v), NA_integer_, ifelse(v, 1L, 0L)))
+  lv <- tolower(trimws(as.character(v)))
+  yes <- c("1","y","yes","true","event","occurred","dead","progressed","failure")
+  no  <- c("0","n","no","false","censored","alive","none","success")
+  out <- ifelse(lv %in% yes, 1L, ifelse(lv %in% no, 0L, NA_integer_))
+  as.integer(out)
+}
+
+# Prefer a sensible contrast level for factors
+pick_contrast_level <- function(x) {
+  xf <- as.factor(x); levs <- levels(xf); if (length(levs) <= 1) return(NULL)
+  ref <- levs[1]; cand <- levs[levs != ref]; if (!length(cand)) return(NULL)
+  if ("1" %in% cand) return("1")
+  cl <- tolower(cand); if (any(cl == "yes")) return(cand[which(cl == "yes")[1]])
+  tab <- sort(table(xf[xf != ref]), decreasing = TRUE); if (length(tab)) return(names(tab)[1])
+  cand[1]
+}
+
+# Extract effects from models
+extract_logistic_effects <- function(model, term, contrast_label = NULL) {
+  tt <- broom::tidy(model, conf.int = TRUE, exponentiate = TRUE)
+  tt <- dplyr::filter(tt, .data$term == term | stringr::str_starts(.data$term, paste0("^", term)))
+  if (nrow(tt) == 0) return(tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  if (!is.null(contrast_label)) {
+    suffix <- sub(paste0("^", term), "", tt$term); hit <- which(suffix == contrast_label); tt <- tt[if (length(hit)) hit[1] else 1, , drop = FALSE]
+  } else tt <- tt[1, , drop = FALSE]
+  tibble::tibble(estimate = as.numeric(tt$estimate), conf.low = as.numeric(tt$conf.low), conf.high = as.numeric(tt$conf.high), p.value = as.numeric(tt$p.value))
+}
+extract_cox_effects <- function(model, term, contrast_label = NULL) {
+  tt <- broom::tidy(model, conf.int = TRUE, exponentiate = TRUE)
+  tt <- dplyr::filter(tt, .data$term == term | stringr::str_starts(.data$term, paste0("^", term)))
+  if (nrow(tt) == 0) return(tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  if (!is.null(contrast_label)) {
+    suffix <- sub(paste0("^", term), "", tt$term); hit <- which(suffix == contrast_label); tt <- tt[if (length(hit)) hit[1] else 1, , drop = FALSE]
+  } else tt <- tt[1, , drop = FALSE]
+  tibble::tibble(estimate = as.numeric(tt$estimate), conf.low = as.numeric(tt$conf.low), conf.high = as.numeric(tt$conf.high), p.value = as.numeric(tt$p.value))
+}
+extract_linear_effects <- function(model, term, contrast_label = NULL) {
+  tt <- broom::tidy(model, conf.int = TRUE)
+  tt <- dplyr::filter(tt, .data$term == term | stringr::str_starts(.data$term, paste0("^", term)))
+  if (nrow(tt) == 0) return(tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  if (!is.null(contrast_label)) {
+    suffix <- sub(paste0("^", term), "", tt$term); hit <- which(suffix == contrast_label); tt <- tt[if (length(hit)) hit[1] else 1, , drop = FALSE]
+  } else tt <- tt[1, , drop = FALSE]
+  tibble::tibble(estimate = as.numeric(tt$estimate), conf.low = as.numeric(tt$conf.low), conf.high = as.numeric(tt$conf.high), p.value = as.numeric(tt$p.value))
+}
+
+# Stage-specific effects via emmeans
+emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("logistic", "cox", "linear"), contrast_label = NULL) {
+  model_type <- match.arg(model_type); x_is_factor <- is.factor(data[[x_var]])
+  if (!requireNamespace("emmeans", quietly = TRUE)) return(tibble::tibble(!!as.name(stage_var) := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  stages <- levels(as.factor(data[[stage_var]])); if (length(stages) == 0) stages <- unique(as.character(stats::na.omit(data[[stage_var]])))
+  tmpl <- tibble::tibble(!!as.name(stage_var) := factor(stages, levels = stages))
+  if (!x_is_factor) {
+    tr <- try(emmeans::emtrends(model, specs = stats::as.formula(paste("~", stage_var)), var = x_var), silent = TRUE)
+    if (inherits(tr, "try-error")) return(dplyr::mutate(tmpl, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    td <- try(broom::tidy(tr, conf.int = TRUE), silent = TRUE)
+    if (inherits(td, "try-error")) {
+      sm <- as.data.frame(summary(tr, infer = c(TRUE, TRUE)))
+      td <- data.frame(stage_tmp = sm[[stage_var]], estimate = sm[["trend"]], conf.low = sm[["lower.CL"]], conf.high = sm[["upper.CL"]], p.value = sm[["p.value"]], stringsAsFactors = FALSE)
+      names(td)[names(td) == "stage_tmp"] <- stage_var
+    } else {
+      if (!"conf.low" %in% names(td) && "lower.CL" %in% names(td)) td$conf.low <- td$lower.CL
+      if (!"conf.high" %in% names(td) && "upper.CL" %in% names(td)) td$conf.high <- td$upper.CL
+      if (!(stage_var %in% names(td))) names(td)[1] <- stage_var
+    }
+    if (nrow(td) == 0) return(dplyr::mutate(tmpl, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    est <- as.numeric(td$estimate); lo <- as.numeric(td$conf.low); hi <- as.numeric(td$conf.high); pv <- as.numeric(td$p.value)
+    if (model_type %in% c("logistic","cox")) { est <- exp(est); lo <- exp(lo); hi <- exp(hi) }
+    out <- tibble::tibble(!!as.name(stage_var) := as.factor(td[[stage_var]]), estimate = est, conf.low = lo, conf.high = hi, p.value = pv)
+    return(dplyr::left_join(tmpl, out, by = stage_var))
+  } else {
+    em <- try(emmeans::emmeans(model, specs = stats::as.formula(paste("~", x_var, "|", stage_var))), silent = TRUE)
+    if (inherits(em, "try-error")) return(dplyr::mutate(tmpl, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    cn <- try(emmeans::contrast(em, method = "trt.vs.ctrl", ref = 1), silent = TRUE)
+    if (inherits(cn, "try-error")) return(dplyr::mutate(tmpl, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    td <- try(broom::tidy(cn, conf.int = TRUE), silent = TRUE)
+    if (inherits(td, "try-error")) return(dplyr::mutate(tmpl, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    if (!is.null(contrast_label)) td <- dplyr::filter(td, stringr::str_detect(.data$contrast, paste0("^", contrast_label, "\\b|\\b", contrast_label, "\\b")))
+    if (nrow(td) == 0) return(dplyr::mutate(tmpl, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    # Determine stage column name (sometimes not preserved)
+    stage_col <- if (stage_var %in% names(td)) stage_var else setdiff(names(td), c("contrast","estimate","std.error","statistic","df","p.value","conf.low","conf.high"))[1]
+    td <- dplyr::group_by(td, .data[[stage_col]]) |> dplyr::slice_head(n = 1) |> dplyr::ungroup()
+    est <- as.numeric(td$estimate); lo <- as.numeric(td$conf.low); hi <- as.numeric(td$conf.high); pv <- as.numeric(td$p.value)
+    if (model_type %in% c("logistic","cox")) { est <- exp(est); lo <- exp(lo); hi <- exp(hi) }
+    td[[stage_var]] <- as.factor(td[[stage_col]])
+    out <- tibble::tibble(!!as.name(stage_var) := td[[stage_var]], estimate = est, conf.low = lo, conf.high = hi, p.value = pv)
+    return(dplyr::left_join(tmpl, out, by = stage_var))
+  }
+}
+
+# Optional: numeric trend plot for linear models (used only if needed)
+plot_stage_trends <- function(df, y, x, stage_col = "stage_early", y_positive_only = FALSE, out_dir = here::here("reports","figs")) {
+  if (!requireNamespace("ggplot2", quietly = TRUE)) return(invisible(NULL))
+  stopifnot(y %in% names(df), x %in% names(df), stage_col %in% names(df))
+  d <- df |>
+    dplyr::select(y = .data[[y]], x = .data[[x]], stage = .data[[stage_col]]) |>
+    dplyr::mutate(stage = as.factor(stage)) |>
+    (\(d) if (y_positive_only) dplyr::filter(d, !is.na(y), y > 0, !is.na(x), !is.na(stage)) else dplyr::filter(d, !is.na(y), !is.na(x), !is.na(stage)))()
+  if (nrow(d) < 5 || !is.numeric(d$x) || !is.numeric(d$y)) return(invisible(NULL))
+  p <- ggplot2::ggplot(d, ggplot2::aes(x = x, y = y, color = stage)) + ggplot2::geom_point(alpha = 0.6) + ggplot2::geom_smooth(method = "lm", se = TRUE, formula = y ~ x) + ggplot2::theme_minimal(base_size = 12) + ggplot2::labs(x = x, y = y, color = "stage")
+  out <- file.path(out_dir, paste0("eda_trend_", y, "_by_", x, ".png"))
+  ggplot2::ggsave(out, p, width = 8, height = 6, dpi = 150)
+}
+```
+## Adjusted models
+
+```{r adjusted-models, include=FALSE}
+
+extract_logistic_effects <- function(model, term, contrast_label = NULL) {
+  tt <- broom::tidy(model, conf.int = TRUE, exponentiate = TRUE)
+  tt <- dplyr::filter(tt, .data$term == !!term | stringr::str_starts(.data$term, paste0("^", term)))
+  if (nrow(tt) == 0) return(tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  if (!is.null(contrast_label)) {
+    # match suffix after the base term
+    suffix <- sub(paste0("^", term), "", tt$term)
+    hit <- which(suffix == contrast_label)
+    if (length(hit) >= 1) tt <- tt[hit[1], , drop = FALSE]
+    else tt <- tt[1, , drop = FALSE]
+  } else {
+    tt <- tt[1, , drop = FALSE]
+  }
+  dplyr::transmute(tt, estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+}
+
+extract_cox_effects <- function(model, term, contrast_label = NULL) {
+  tt <- broom::tidy(model, conf.int = TRUE, exponentiate = TRUE)
+  tt <- dplyr::filter(tt, .data$term == !!term | stringr::str_starts(.data$term, paste0("^", term)))
+  if (nrow(tt) == 0) return(tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  if (!is.null(contrast_label)) {
+    suffix <- sub(paste0("^", term), "", tt$term)
+    hit <- which(suffix == contrast_label)
+    if (length(hit) >= 1) tt <- tt[hit[1], , drop = FALSE]
+    else tt <- tt[1, , drop = FALSE]
+  } else {
+    tt <- tt[1, , drop = FALSE]
+  }
+  dplyr::transmute(tt, estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+}
+
+extract_linear_effects <- function(model, term, contrast_label = NULL) {
+  tt <- broom::tidy(model, conf.int = TRUE)
+  tt <- dplyr::filter(tt, .data$term == !!term | stringr::str_starts(.data$term, paste0("^", term)))
+  if (nrow(tt) == 0) return(tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  if (!is.null(contrast_label)) {
+    suffix <- sub(paste0("^", term), "", tt$term)
+    hit <- which(suffix == contrast_label)
+    if (length(hit) >= 1) tt <- tt[hit[1], , drop = FALSE]
+    else tt <- tt[1, , drop = FALSE]
+  } else {
+    tt <- tt[1, , drop = FALSE]
+  }
+  dplyr::transmute(tt, estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+}
+
+emm_stage_effects <- function(model, data, stage_var, x_var, model_type = c("logistic", "cox", "linear"), contrast_label = NULL) {
+  model_type <- match.arg(model_type)
+  stopifnot(stage_var %in% names(data), x_var %in% names(data))
+  x_is_factor <- is.factor(data[[x_var]])
+  if (!requireNamespace("emmeans", quietly = TRUE)) {
+    return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+  }
+  if (!x_is_factor) {
+    tr <- try(emmeans::emtrends(model, specs = stats::as.formula(paste("~", stage_var)), var = x_var), silent = TRUE)
+    if (inherits(tr, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    td <- try(broom::tidy(tr, conf.int = TRUE), silent = TRUE)
+    if (inherits(td, "try-error")) {
+      s <- as.data.frame(summary(tr, infer = c(TRUE, TRUE)))
+      td <- tibble::tibble(!!stage_var := s[[stage_var]], estimate = s$trend, conf.low = s$lower.CL, conf.high = s$upper.CL, p.value = s$`p.value`)
+    }
+    # Normalize column names: broom::tidy(emtrends) may produce e.g. "x.trend"
+    if (!("estimate" %in% names(td))) {
+      alt <- intersect(c("estimate", "emmean", "emtrend", "trend", "x.trend"), names(td))
+      if (length(alt) >= 1) td <- dplyr::rename(td, estimate = !!rlang::sym(alt[1]))
+    }
+    if (!("conf.low" %in% names(td)) && ("lower.CL" %in% names(td))) td <- dplyr::rename(td, conf.low = .data$lower.CL)
+    if (!("conf.high" %in% names(td)) && ("upper.CL" %in% names(td))) td <- dplyr::rename(td, conf.high = .data$upper.CL)
+    if (!(stage_var %in% names(td))) names(td)[1] <- stage_var
+    # Ensure required columns exist to avoid mutate errors
+    for (nm in c("estimate","conf.low","conf.high","p.value")) {
+      if (!(nm %in% names(td))) td[[nm]] <- NA_real_
+    }
+    if (model_type %in% c("logistic", "cox")) {
+      td <- td |>
+        dplyr::mutate(estimate = exp(.data$estimate), conf.low = exp(.data$conf.low), conf.high = exp(.data$conf.high))
+    }
+    return(td |>
+             dplyr::select(!!stage_var, estimate, conf.low, conf.high, p.value))
+  } else {
+    em <- try(emmeans::emmeans(model, specs = stats::as.formula(paste("~", x_var, "|", stage_var))), silent = TRUE)
+    if (inherits(em, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    cn <- try(emmeans::contrast(em, method = "trt.vs.ctrl", ref = 1), silent = TRUE)
+    if (inherits(cn, "try-error")) return(tibble::tibble(!!stage_var := factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_))
+    td <- broom::tidy(cn, conf.int = TRUE)
+    # Normalize column names for factor contrasts; occasionally tidy may return other names
+    if (!("estimate" %in% names(td))) {
+      alt <- intersect(c("estimate", "ratio", "odds.ratio", "emmean", "emtrend", "trend", "x.trend"), names(td))
+      if (length(alt) >= 1) td <- dplyr::rename(td, estimate = !!rlang::sym(alt[1]))
+    }
+    if (!("conf.low" %in% names(td)) && ("lower.CL" %in% names(td))) td <- dplyr::rename(td, conf.low = .data$lower.CL)
+    if (!("conf.high" %in% names(td)) && ("upper.CL" %in% names(td))) td <- dplyr::rename(td, conf.high = .data$upper.CL)
+    if (!is.null(contrast_label)) {
+      td <- dplyr::filter(td, stringr::str_detect(.data$contrast, paste0("^", contrast_label, "\\b|\\b", contrast_label, "\\b")))
+    }
+    if (stage_var %in% names(td)) {
+      td <- td |>
+        dplyr::group_by(.data[[stage_var]]) |>
+        dplyr::slice_head(n = 1) |>
+        dplyr::ungroup()
+    }
+    # Ensure required columns exist to avoid mutate errors
+    for (nm in c("estimate","conf.low","conf.high","p.value")) {
+      if (!(nm %in% names(td))) td[[nm]] <- NA_real_
+    }
+    if (model_type %in% c("logistic", "cox")) {
+      td <- td |>
+        dplyr::mutate(estimate = exp(.data$estimate), conf.low = exp(.data$conf.low), conf.high = exp(.data$conf.high))
+    }
+    if (!(stage_var %in% names(td))) {
+      by_cols <- setdiff(names(td), c("contrast","estimate","std.error","statistic","df","p.value","conf.low","conf.high"))
+      if (length(by_cols) >= 1) names(td)[names(td) == by_cols[1]] <- stage_var
+    }
+    return(td |>
+             dplyr::select(!!stage_var, estimate, conf.low, conf.high, p.value))
+  }
+}
+
+covars <- c("age", "sex", "bmi", "ps_ecog", "first_syst_th", "dyslipidemia_before", "thyroid_disease_before", "monotherapy")
+covars <- covars[covars %in% names(df)]
+if (length(covars) == 0) {
+  warning("No additional covariates found; producing empty adjusted table.")
+}
+
+adjusted_rows <- list()
+
+# Helper to coerce types: treat character as factor
+coerce_predictor <- function(v) {
+  if (is.character(v)) as.factor(v) else v
+}
+
+for (cv in covars) {
+  # Logistic: response_achieved ~ stage + cv
+  d_mod <- df |>
+    dplyr::select(y = dplyr::all_of(col_response_achieved), stage = dplyr::all_of(col_stage), x = dplyr::all_of(cv)) |>
+    dplyr::mutate(y = as.factor(y), x = coerce_predictor(x)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), !is.na(x))
+  m_all <- tryCatch(stats::glm(y ~ stage + x, data = d_mod, family = stats::binomial()), error = function(e) NULL)
+  m_int <- tryCatch(stats::glm(y ~ stage * x, data = d_mod, family = stats::binomial()), error = function(e) NULL)
+  contrast_label <- if (is.factor(d_mod$x)) pick_contrast_level(d_mod$x) else NULL
+  eff_all <- if (!is.null(m_all)) extract_logistic_effects(m_all, term = "x", contrast_label = contrast_label) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  # Stage-specific via emmeans/emtrends
+  if (!is.null(m_int)) {
+    sp_log_emm <- emm_stage_effects(m_int, d_mod, stage_var = "stage", x_var = "x", model_type = "logistic", contrast_label = contrast_label)
+  } else {
+    sp_log_emm <- tibble::tibble(stage = factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  }
+  st_levels <- levels(as.factor(d_mod$stage))
+  s0 <- sp_log_emm |> dplyr::filter(as.character(.data$stage) == st_levels[1]) |> dplyr::slice_head(n = 1)
+  s1 <- sp_log_emm |> dplyr::filter(length(st_levels) >= 2, as.character(.data$stage) == st_levels[2]) |> dplyr::slice_head(n = 1)
+  if (nrow(s0) == 0) s0 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+  if (nrow(s1) == 0) s1 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+  adjusted_rows[[length(adjusted_rows) + 1]] <- tibble::tibble(
+    outcome = "response_achieved", covariate = cv,
+    p_all = eff_all$p.value, effect_all = eff_all$estimate, effect_all_ci = fmt_ci(eff_all$conf.low, eff_all$conf.high),
+    p_stage0 = s0$p.value, effect_stage0 = s0$estimate, effect_stage0_ci = fmt_ci(s0$conf.low, s0$conf.high),
+    p_stage1 = s1$p.value, effect_stage1 = s1$estimate, effect_stage1_ci = fmt_ci(s1$conf.low, s1$conf.high)
+  )
+
+  # Cox: each survival endpoint ~ stage + cv; stage-specific via separate models
+  for (spec in km_specs) {
+    time_col <- spec$time; event_col <- spec$event; outname <- spec$label
+    d_surv <- df |>
+      dplyr::select(time = dplyr::all_of(time_col), event = dplyr::all_of(event_col), stage = dplyr::all_of(col_stage), x = dplyr::all_of(cv)) |>
+      dplyr::mutate(
+        time = suppressWarnings(readr::parse_number(as.character(.data$time))),
+        event = ensure_binary_event(.data$event),
+        stage = as.factor(.data$stage),
+        x = coerce_predictor(x)
+      ) |>
+      (\(d) if (identical(outname, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+      dplyr::filter(!is.na(time), !is.na(event), !is.na(stage), !is.na(x))
+    m_all <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage + x, data = d_surv, x = TRUE), error = function(e) NULL)
+    m_int <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage * x, data = d_surv, x = TRUE), error = function(e) NULL)
+    contrast_label <- if (is.factor(d_surv$x)) pick_contrast_level(d_surv$x) else NULL
+    eff_all <- if (!is.null(m_all)) extract_cox_effects(m_all, term = "x", contrast_label = contrast_label) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    if (!is.null(m_int)) {
+      sp_cox_emm <- emm_stage_effects(m_int, d_surv, stage_var = "stage", x_var = "x", model_type = "cox", contrast_label = contrast_label)
+    } else {
+      sp_cox_emm <- tibble::tibble(stage = factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+    }
+    st_levels <- levels(as.factor(d_surv$stage))
+    s0 <- sp_cox_emm |> dplyr::filter(as.character(.data$stage) == st_levels[1]) |> dplyr::slice_head(n = 1)
+    s1 <- sp_cox_emm |> dplyr::filter(length(st_levels) >= 2, as.character(.data$stage) == st_levels[2]) |> dplyr::slice_head(n = 1)
+    if (nrow(s0) == 0) s0 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+    if (nrow(s1) == 0) s1 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+    adjusted_rows[[length(adjusted_rows) + 1]] <- tibble::tibble(
+      outcome = outname, covariate = cv,
+      p_all = eff_all$p.value, effect_all = eff_all$estimate, effect_all_ci = fmt_ci(eff_all$conf.low, eff_all$conf.high),
+      p_stage0 = s0$p.value, effect_stage0 = s0$estimate, effect_stage0_ci = fmt_ci(s0$conf.low, s0$conf.high),
+      p_stage1 = s1$p.value, effect_stage1 = s1$estimate, effect_stage1_ci = fmt_ci(s1$conf.low, s1$conf.high)
+    )
+  }
+
+  # Linear: response_time_to ~ stage + cv (y > 0)
+  d_lin <- df |>
+    dplyr::select(y = dplyr::all_of(col_response_time_to), stage = dplyr::all_of(col_stage), x = dplyr::all_of(cv)) |>
+    dplyr::mutate(x = coerce_predictor(x)) |>
+    dplyr::filter(!is.na(y), y > 0, !is.na(stage), !is.na(x))
+  m_all <- tryCatch(stats::lm(y ~ stage + x, data = d_lin), error = function(e) NULL)
+  m_int <- tryCatch(stats::lm(y ~ stage * x, data = d_lin), error = function(e) NULL)
+  contrast_label <- if (is.factor(d_lin$x)) pick_contrast_level(d_lin$x) else NULL
+  eff_all <- if (!is.null(m_all)) extract_linear_effects(m_all, term = "x", contrast_label = contrast_label) else tibble::tibble(estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  if (!is.null(m_int)) {
+    sp_lin_emm <- emm_stage_effects(m_int, d_lin, stage_var = "stage", x_var = "x", model_type = "linear", contrast_label = contrast_label)
+  } else {
+    sp_lin_emm <- tibble::tibble(stage = factor(NA), estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_)
+  }
+  st_levels <- levels(as.factor(d_lin$stage))
+  s0 <- sp_lin_emm |> dplyr::filter(as.character(.data$stage) == st_levels[1]) |> dplyr::slice_head(n = 1)
+  s1 <- sp_lin_emm |> dplyr::filter(length(st_levels) >= 2, as.character(.data$stage) == st_levels[2]) |> dplyr::slice_head(n = 1)
+  if (nrow(s0) == 0) s0 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+  if (nrow(s1) == 0) s1 <- tibble::tibble(p.value = NA_real_, estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_)
+  adjusted_rows[[length(adjusted_rows) + 1]] <- tibble::tibble(
+    outcome = "response_time_to", covariate = cv,
+    p_all = eff_all$p.value, effect_all = eff_all$estimate, effect_all_ci = fmt_ci(eff_all$conf.low, eff_all$conf.high),
+    p_stage0 = s0$p.value, effect_stage0 = s0$estimate, effect_stage0_ci = fmt_ci(s0$conf.low, s0$conf.high),
+    p_stage1 = s1$p.value, effect_stage1 = s1$estimate, effect_stage1_ci = fmt_ci(s1$conf.low, s1$conf.high)
+  )
+  # Auto-plot for numeric predictors: y vs x by stage with per-stage slope p-values
+  if (is.numeric(d_lin$x)) {
+    try(plot_stage_trends(df, y = col_response_time_to, x = cv, stage_col = col_stage, y_positive_only = TRUE), silent = TRUE)
+  }
+}
+
+summary_adjusted_models <- dplyr::bind_rows(adjusted_rows) |>
+  dplyr::mutate(across(where(is.numeric), ~ round(.x, 4))) |>
+  dplyr::relocate(outcome, covariate, p_all, effect_all, effect_all_ci, p_stage0, effect_stage0, effect_stage0_ci, p_stage1, effect_stage1, effect_stage1_ci)
+
+```
+
+
+
+
+### Adjusted logistic results
+
+```{r adjusted-table-log}
+if (exists("summary_adjusted_models") && is.data.frame(summary_adjusted_models) && nrow(summary_adjusted_models) > 0) {
+  src <- try(dplyr::filter(summary_adjusted_models, outcome == "response_achieved"), silent = TRUE)
+  if (!inherits(src, "try-error") && nrow(src) > 0) {
+    # Print explicit outcome line
+
+    df_disp <- src %>% dplyr::select(dplyr::any_of(c("outcome","covariate","p_all","effect_all","effect_all_ci","p_stage0","effect_stage0","effect_stage0_ci","p_stage1","effect_stage1","effect_stage1_ci")))
+    nm <- c(outcome = "Outcome", covariate = "Covariate", p_all = "p (overall)", effect_all = "Effect (overall)", effect_all_ci = "95% CI (overall)", p_stage0 = "p (stage_early=0)", effect_stage0 = "Effect (stage_early=0)", effect_stage0_ci = "95% CI (stage_early=0)", p_stage1 = "p (stage_early=1)", effect_stage1 = "Effect (stage_early=1)", effect_stage1_ci = "95% CI (stage_early=1)")
+    coln <- vapply(names(df_disp), function(z) if (!is.null(nm[[z]])) nm[[z]] else z, character(1))
+    knitr::kable(df_disp, col.names = coln) %>%
+      kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+  } else {
+    cat("No adjusted logistic results available.\n")
+  }
+} else {
+  cat("No adjusted results available.\n")
+}
+```
+
+`r if (exists("adj_eval_log_txt")) adj_eval_log_txt`
+
+### Adjusted survival results
+
+```{r adjusted-table-surv}
+if (exists("summary_adjusted_models") && is.data.frame(summary_adjusted_models) && nrow(summary_adjusted_models) > 0) {
+  labs <- try(vapply(km_specs, function(x) x$label, character(1)), silent = TRUE)
+  if (!inherits(labs, "try-error")) {
+    src <- try(dplyr::filter(summary_adjusted_models, outcome %in% labs), silent = TRUE)
+    if (!inherits(src, "try-error") && nrow(src) > 0) {
+      # Print explicit outcomes present
+
+      df_disp <- src %>% dplyr::select(dplyr::any_of(c("outcome","covariate","p_all","effect_all","effect_all_ci","p_stage0","effect_stage0","effect_stage0_ci","p_stage1","effect_stage1","effect_stage1_ci")))
+      nm <- c(outcome = "Outcome", covariate = "Covariate", p_all = "p (overall)", effect_all = "Effect (overall)", effect_all_ci = "95% CI (overall)", p_stage0 = "p (stage_early=0)", effect_stage0 = "Effect (stage_early=0)", effect_stage0_ci = "95% CI (stage_early=0)", p_stage1 = "p (stage_early=1)", effect_stage1 = "Effect (stage_early=1)", effect_stage1_ci = "95% CI (stage_early=1)")
+      coln <- vapply(names(df_disp), function(z) if (!is.null(nm[[z]])) nm[[z]] else z, character(1))
+      knitr::kable(df_disp, col.names = coln) %>%
+        kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+        kableExtra::collapse_rows(columns = 1, valign = "top")
+    } else {
+      cat("No adjusted survival results available.\n")
+    }
+  }
+} else {
+  cat("No adjusted results available.\n")
+}
+```
+
+`r if (exists("adj_eval_surv_txt")) adj_eval_surv_txt`
+
+### Adjusted linear results
+
+```{r adjusted-table-lin}
+if (exists("summary_adjusted_models") && is.data.frame(summary_adjusted_models) && nrow(summary_adjusted_models) > 0) {
+  src <- try(dplyr::filter(summary_adjusted_models, outcome == "response_time_to"), silent = TRUE)
+  if (!inherits(src, "try-error") && nrow(src) > 0) {
+
+    df_disp <- src %>% dplyr::select(dplyr::any_of(c("outcome","covariate","p_all","effect_all","effect_all_ci","p_stage0","effect_stage0","effect_stage0_ci","p_stage1","effect_stage1","effect_stage1_ci")))
+    nm <- c(outcome = "Outcome", covariate = "Covariate", p_all = "p (overall)", effect_all = "Effect (overall)", effect_all_ci = "95% CI (overall)", p_stage0 = "p (stage_early=0)", effect_stage0 = "Effect (stage_early=0)", effect_stage0_ci = "95% CI (stage_early=0)", p_stage1 = "p (stage_early=1)", effect_stage1 = "Effect (stage_early=1)", effect_stage1_ci = "95% CI (stage_early=1)")
+    coln <- vapply(names(df_disp), function(z) if (!is.null(nm[[z]])) nm[[z]] else z, character(1))
+    knitr::kable(df_disp, col.names = coln) %>%
+      kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+  } else {
+    cat("No adjusted linear results available.\n")
+  }
+} else {
+  cat("No adjusted results available.\n")
+}
+```
+
+`r if (exists("adj_eval_lin_txt")) adj_eval_lin_txt`
+
+```{r main-figs-show, echo=FALSE, message=FALSE, warning=FALSE}
+# Display generated main figures if present (prefer PNG for HTML)
+dir_reports <- here::here("reports","figs")
+dir_output  <- here::here("output","figures","main")
+paths <- c(list.files(dir_reports, pattern = "^mainplot_.*\\.(png|tiff)$", full.names = TRUE),
+           list.files(dir_output,  pattern = "\\.(png|tiff)$", full.names = TRUE))
+paths <- unique(paths[file.exists(paths)])
+if (length(paths)) knitr::include_graphics(paths)
+```
+
+
+# Conclusion
+
+```{r conclusion_prep, include=FALSE}
+# Collect evaluation texts from previous sections and concatenate
+parts <- character(0)
+if (exists("corr_eval_txt")) parts <- c(parts, corr_eval_txt)
+if (exists("fac_eval_txt")) parts <- c(parts, fac_eval_txt)
+if (exists("main_eval_log_txt")) parts <- c(parts, main_eval_log_txt)
+if (exists("main_eval_surv_txt")) parts <- c(parts, main_eval_surv_txt)
+if (exists("main_eval_lin_txt")) parts <- c(parts, main_eval_lin_txt)
+if (exists("adj_eval_log_txt")) parts <- c(parts, adj_eval_log_txt)
+if (exists("adj_eval_surv_txt")) parts <- c(parts, adj_eval_surv_txt)
+if (exists("adj_eval_lin_txt")) parts <- c(parts, adj_eval_lin_txt)
+conclusion_txt <- if (length(parts)) paste(parts, collapse = " ") else NULL
+
+# Sanitize: remove numeric effect sizes (OR/HR), p-values, and CI details
+sanitize <- function(s) {
+  if (is.null(s) || is.na(s)) return(s)
+  s <- gsub("OR\\s*=\\s*[^,;\\.\\)]+", "OR", s)
+  s <- gsub("HR\\s*=\\s*[^,;\\.\\)]+", "HR", s)
+  s <- gsub("(?i)mean diff(?:erence)?\\s*=\\s*[^,;\\)]+", "mean difference", s, perl = TRUE)
+  s <- gsub("(?i)slope\\s*=\\s*[^,;\\)]+", "slope", s, perl = TRUE)
+  s <- gsub("\\(95% CI[^\\)]*\\)", "(95% CI)", s)
+  s <- gsub("p\\s*[<=>]\\s*0\\.[0-9]+", "p-value", s)
+  s <- gsub("p\\s*[<=>]\\s*[0-9]+\\.[0-9]+", "p-value", s)
+  s <- gsub("p\\s*[<=>]\\s*[0-9]+", "p-value", s)
+  s <- gsub("(\\u03C1|rho)\\s*=\\s*[^,;\\)]+", "correlation", s)
+  # Simplify stage-specific numeric phrases
+  s <- gsub("stage_early\\s*=\\s*0:\\s*[^\\.;]+", "stage_early = 0", s)
+  s <- gsub("stage_early\\s*=\\s*1:\\s*[^\\.;]+", "stage_early = 1", s)
+  s
+}
+conclusion_txt_sanit <- if (!is.null(conclusion_txt)) sanitize(conclusion_txt) else NULL
+```
+
+`r if (exists("conclusion_txt_sanit") && !is.null(conclusion_txt_sanit)) conclusion_txt_sanit else "Summary not available: upstream evaluation text was not generated."`
+
+# Session info
+
+<details>
+
+<summary>Platform</summary>
+
+```{r session_info_1}
+df_session_platform <- sessioninfo::session_info()$platform |>
+  as.list() |>
+  as.data.frame() |>
+  tibble::rownames_to_column("Setting")
+
+
+knitr::kable(
+  df_session_platform,
+  booktabs = TRUE,
+  align = "l",
+  caption = "(ref:Reproducibility-SessionInfo-R-environment-title)",
+  caption.short = NULL
+) |>
+  kableExtra::kable_styling(
+    full_width = FALSE,
+    latex_options = c("hold_position"),
+    bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  )
+
+```
+
+</details>
+
+<details>
+
+<summary>Used packages</summary>
+
+```{r session_info_2, results = 'asis'}
+session_pkgs <- sessioninfo::package_info() |>
+tibble() |>
+subset(attached == TRUE, select = c(package, loadedversion, date))
+
+knitr::kable(session_pkgs, booktabs = TRUE)
+```
+
+</details>
+
+<br> <br> <br> <br> <br> <br>
+
+::: {.tocify-extend-page data-unique="tocify-extend-page" style="height: 0;"}
+:::
+

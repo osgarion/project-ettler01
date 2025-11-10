@@ -112,6 +112,13 @@ if (!exists("d04", inherits = FALSE) || !is.data.frame(d04)) {
 
 message(sprintf("d04 imported successfully: %d rows x %d cols", nrow(d04), ncol(d04)))
 
+# Immediately drop identifying/non-analytic column(s)
+drop_cols <- intersect(names(d04), c("initials","Initials"))
+if (length(drop_cols)) {
+  d04 <- d04[, setdiff(names(d04), drop_cols), drop = FALSE]
+  message(sprintf(" - Removed columns: %s", paste(drop_cols, collapse = ", ")))
+}
+
 # Write a quick snapshot for downstream verification
 capture.output({
   cat("\nstr(d04):\n"); str(d04)
