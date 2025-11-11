@@ -1869,9 +1869,224 @@ if (nrow(stagewise_surv_app) > 0) {
 }
 ```
 
+
+## Adjusted models - bmi
+
+### Logistic results
+
+```{r bmi_adjusted_logistic_results, message=FALSE, warning=FALSE}
+col_pred <- resolve_or_identity(df, "bmi")
+col_y    <- resolve_or_identity(df, "response_achieved")
+
+covars_bmi <- c("age","sex","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","stage_early")
+covars_bmi <- unique(covars_bmi)
+covars_bmi <- covars_bmi[covars_bmi %in% names(df) & covars_bmi != col_pred]
+
+fit_adj_logistic_bmi <- function(df, outcome_col, pred_col, covar_col) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(outcome_col), pred = dplyr::all_of(pred_col), x = dplyr::all_of(covar_col)) |>
+    dplyr::filter(!is.na(y), !is.na(pred), !is.na(x))
+  if (nrow(d) == 0) return(NULL)
+  if (is.numeric(d$pred)) { ux <- unique(d$pred[!is.na(d$pred)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$pred <- factor(as.integer(d$pred)) }
+  if (is.numeric(d$x))   { ux <- unique(d$x[!is.na(d$x)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$x   <- factor(as.integer(d$x)) }
+  d <- d |> dplyr::mutate(pred = coerce_predictor(pred), x = coerce_predictor(x))
+  m <- tryCatch(stats::glm(y ~ pred + x, data = d, family = stats::binomial()), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE)
+  pr <- tt |> dplyr::filter(stringr::str_detect(.data$term, "^pred")) |> dplyr::slice(1)
+  if (is.factor(d$x)) {
+    lab <- pick_contrast_level(d$x)
+    cv <- if (is.null(lab)) tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+          else tt |> dplyr::filter(.data$term == paste0("x", lab)) |> dplyr::slice(1)
+    if (nrow(cv) == 0) cv <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+  } else {
+    cv <- tt |> dplyr::filter(.data$term == "x") |> dplyr::slice(1)
+  }
+  if (nrow(pr) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `Outcomes` = outcome_col,
+    `Covariate` = covar_col,
+    `estimate (bmi)` = pr$estimate,
+    `p-value (bmi)`  = pr$p.value,
+    `95%CI (bmi)`    = sprintf("[%.2f, %.2f]", pr$conf.low, pr$conf.high),
+    `estimate (covariate)` = cv$estimate,
+    `p-value (covariate)`  = cv$p.value,
+    `95%CI (covariate)`    = sprintf("[%.2f, %.2f]", cv$conf.low, cv$conf.high)
+  )
+}
+
+adj_bmi_log <- tibble::tibble(cov = covars_bmi) |>
+  dplyr::mutate(results = purrr::map(cov, ~ fit_adj_logistic_bmi(df, outcome_col = col_y, pred_col = col_pred, covar_col = .x))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::select(-cov)
+
+fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+if (nrow(adj_bmi_log) > 0) {
+  out_tbl <- adj_bmi_log |>
+    dplyr::mutate(
+      `p-value (bmi)`      = fmt_p(`p-value (bmi)`),
+      `p-value (covariate)` = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = 'l',
+               col.names = c('Outcomes','Covariate','estimate (bmi)','p-value (bmi)','95%CI (bmi)',
+                             'estimate (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted logistic results (bmi) available.\n')
+}
+```
+### Linear results
+
+```{r bmi_adjusted_linear_results, message=FALSE, warning=FALSE}
+col_pred <- resolve_or_identity(df, "bmi")
+col_lin  <- resolve_or_identity(df, "response_time_to")
+
+covars_bmi <- c("age","sex","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","stage_early")
+covars_bmi <- unique(covars_bmi)
+covars_bmi <- covars_bmi[covars_bmi %in% names(df) & covars_bmi != col_pred]
+
+fit_adj_linear_bmi <- function(df, outcome_col, pred_col, covar_col) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(outcome_col), pred = dplyr::all_of(pred_col), x = dplyr::all_of(covar_col)) |>
+    dplyr::filter(!is.na(y), is.finite(y), !is.na(pred), !is.na(x), y > 0)
+  if (nrow(d) == 0) return(NULL)
+  if (is.numeric(d$pred)) { ux <- unique(d$pred[!is.na(d$pred)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$pred <- factor(as.integer(d$pred)) }
+  if (is.numeric(d$x))   { ux <- unique(d$x[!is.na(d$x)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$x   <- factor(as.integer(d$x)) }
+  d <- d |> dplyr::mutate(pred = coerce_predictor(pred), x = coerce_predictor(x))
+  m <- tryCatch(stats::lm(y ~ pred + x, data = d), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE)
+  pr <- tt |> dplyr::filter(stringr::str_detect(.data$term, "^pred")) |> dplyr::slice(1)
+  if (is.factor(d$x)) {
+    lab <- pick_contrast_level(d$x)
+    cv <- if (is.null(lab)) tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+          else tt |> dplyr::filter(.data$term == paste0("x", lab)) |> dplyr::slice(1)
+    if (nrow(cv) == 0) cv <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+  } else {
+    cv <- tt |> dplyr::filter(.data$term == "x") |> dplyr::slice(1)
+  }
+  if (nrow(pr) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `Outcomes` = outcome_col,
+    `Covariate` = covar_col,
+    `estimate (bmi)` = pr$estimate,
+    `p-value (bmi)`  = pr$p.value,
+    `95%CI (bmi)`    = sprintf("[%.2f, %.2f]", pr$conf.low, pr$conf.high),
+    `estimate (covariate)` = cv$estimate,
+    `p-value (covariate)`  = cv$p.value,
+    `95%CI (covariate)`    = sprintf("[%.2f, %.2f]", cv$conf.low, cv$conf.high)
+  )
+}
+
+adj_bmi_lin <- tibble::tibble(cov = covars_bmi) |>
+  dplyr::mutate(results = purrr::map(cov, ~ fit_adj_linear_bmi(df, outcome_col = col_lin, pred_col = col_pred, covar_col = .x))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::select(-cov)
+
+fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+if (nrow(adj_bmi_lin) > 0) {
+  out_tbl <- adj_bmi_lin |>
+    dplyr::mutate(
+      `p-value (bmi)`      = fmt_p(`p-value (bmi)`),
+      `p-value (covariate)` = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = 'l',
+               col.names = c('Outcomes','Covariate','estimate (bmi)','p-value (bmi)','95%CI (bmi)',
+                             'estimate (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted linear results (bmi) available.\n')
+}
+```
+
+
+### Survival results
+
+```{r bmi_adjusted_survival_results, message=FALSE, warning=FALSE}
+# Adjusted Cox PH: Surv ~ bmi + covariate for three endpoints
+
+col_pred <- resolve_or_identity(df, "bmi")
+
+endpoints <- list(
+  list(label = 'time_to_next_treatment', time = 'ttnt',                event = 'ttnt_achieved'),
+  list(label = 'treatment_duration',      time = 'treatment_duration', event = 'discontinuation_reason'),
+  list(label = 'response_duration',       time = 'response_duration',  event = 'progression')
+)
+
+covars_bmi <- c('age','sex','ps_ecog','first_syst_th','monotherapy','ae_grade_3_4','stage_early')
+covars_bmi <- covars_bmi[covars_bmi %in% names(df) & covars_bmi != col_pred]
+
+fit_adj_cox_bmi <- function(df, spec, pred_col, covar_col) {
+  if (!all(c(spec$time, spec$event, pred_col, covar_col) %in% names(df))) return(NULL)
+  d <- df |>
+    dplyr::transmute(
+      time  = suppressWarnings(readr::parse_number(as.character(.data[[spec$time]]))),
+      event = .data[[spec$event]],
+      pred  = .data[[pred_col]],
+      x     = .data[[covar_col]]
+    ) |>
+    dplyr::mutate(
+      event = {
+        v <- event
+        if (is.factor(v)) v <- as.character(v)
+        v <- suppressWarnings(as.numeric(v))
+        ifelse(is.na(v), NA_real_, ifelse(v == 0, 0, 1))
+      },
+      pred = if (is.numeric(pred) && all(na.omit(unique(pred)) %in% c(0,1))) factor(as.integer(pred)) else pred,
+      pred = if (is.character(pred)) factor(pred) else pred,
+      x    = if (is.numeric(x) && all(na.omit(unique(x)) %in% c(0,1))) factor(as.integer(x)) else x,
+      x    = if (is.character(x)) factor(x) else x
+    ) |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(pred), !is.na(x))
+  if (nrow(d) < 3) return(NULL)
+  m <- tryCatch(survival::coxph(survival::Surv(time, event) ~ pred + x, data = d, x = TRUE), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE, exponentiate = TRUE)
+  pr <- tt |> dplyr::filter(stringr::str_detect(.data$term, '^pred')) |> dplyr::slice(1)
+  cv <- if (is.factor(d$x)) {
+    tt |> dplyr::filter(stringr::str_starts(.data$term, 'x')) |> dplyr::slice(1)
+  } else {
+    tt |> dplyr::filter(.data$term == 'x') |> dplyr::slice(1)
+  }
+  if (nrow(pr) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `Outcomes` = spec$label,
+    `Covariate` = covar_col,
+    `HR (bmi)` = as.numeric(pr$estimate),
+    `p-value (bmi)` = pr$p.value,
+    `95%CI (bmi)` = sprintf('[%.2f, %.2f]', as.numeric(pr$conf.low), as.numeric(pr$conf.high)),
+    `HR (covariate)` = as.numeric(cv$estimate),
+    `p-value (covariate)` = cv$p.value,
+    `95%CI (covariate)` = sprintf('[%.2f, %.2f]', as.numeric(cv$conf.low), as.numeric(cv$conf.high))
+  )
+}
+
+adj_bmi_surv <- tidyr::expand_grid(spec_id = seq_along(endpoints), cov = covars_bmi) |>
+  dplyr::mutate(results = purrr::map2(spec_id, cov, ~ fit_adj_cox_bmi(df, endpoints[[.x]], pred_col = col_pred, covar_col = .y))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::select(-cov, -spec_id)
+
+fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, '<0.001', sprintf('%.3f', p)))
+
+if (nrow(adj_bmi_surv) > 0) {
+  out_tbl <- adj_bmi_surv |>
+    dplyr::mutate(
+      `p-value (bmi)`       = fmt_p(`p-value (bmi)`),
+      `p-value (covariate)` = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = 'l',
+               col.names = c('Outcomes','Covariate','HR (bmi)','p-value (bmi)','95%CI (bmi)',
+                             'HR (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted survival results (bmi) available.\n')
+}
+```
+
 # Conclussion  
-
-
 
 # Session info
 
