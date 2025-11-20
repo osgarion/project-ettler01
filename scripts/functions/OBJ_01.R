@@ -11,7 +11,7 @@ param_sel_2 <- c("initials", "age", "sex", "bmi", "ps_ecog", "stage_early",
                  "response_time_to", "response_duration",	"progression",
                  "treatment_duration", "discontinuation_reason", "ae_grade_3_4",
                  "ae_liver", "ae_hemato", "discontinued_due_to_ae",
-                 "ae_hyperTAG_grade_3_4", "ae_hyperTAG_any"
+                 "ae_hyperTAG_grade_3_4", "ae_hyperTAG_any", "final_dose_mg_m2"
                  
 )
 
