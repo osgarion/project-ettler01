@@ -1,0 +1,2141 @@
+---
+title: "Adverse effect of bexaroten therapy in T-lymphom"
+author: "*Jiri Baloun*"
+date: "Compiled on: **2025-11-06**  <br> Last updated **`r format(Sys.time(), '%Y-%m-%d')`**"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.align = 'center', dpi = 150
+)
+options(knitr.kable.NA = '')
+
+suppressPackageStartupMessages({
+  library(tidyverse); library(janitor); library(readr); library(broom)
+  library(skimr); library(rio); library(here)
+  library(survival); library(survminer); library(emmeans)
+  library(ggplot2); library(patchwork); library(cowplot)
+  library(kableExtra); library(conflicted)
+})
+
+conflicted::conflicts_prefer(
+  janitor::remove_empty,
+  dplyr::filter,
+  dplyr::mutate,
+  dplyr::rename,
+  dplyr::summarize,
+  dplyr::summarise,
+  dplyr::select,
+  purrr::map,
+  tidyr::extract,
+  stats::chisq.test,
+  base::intersect,
+  base::setdiff,
+  dplyr::last,
+  dplyr::first,
+  dplyr::between
+)
+
+# Output folders inside reports
+dir.create(here::here("reports","figs"), showWarnings = FALSE, recursive = TRUE)
+dir.create(here::here("reports","tables"), showWarnings = FALSE, recursive = TRUE)
+```
+
+
+# Basic Description
+
+This report investigates outcomes in patients with T-cell lymphoma treated with bexarotene and evaluates whether early-stage disease (stage_early) is associated with response and time-to-event endpoints. The overarching goal is twofold: (i) to characterise the analytic cohort and data structure, and (ii) to estimate the effect of stage_early on key clinical outcomes, both unadjusted and after sequential adjustment for clinically relevant covariates.
+
+Objectives
+- Describe the cohort and data quality (sample size, distributions, missingness) and explore structure among numeric and categorical variables.
+- Quantify the relationship between stage_early and: (a) response_achieved (binary), (b) three survival endpoints (time_to_next_treatment, treatment_duration, response_duration), and (c) response_time_to among observations with y > 0 (continuous).
+- Examine robustness by adding one covariate at a time to the base models containing stage_early, and summarise stage-specific effects to aid interpretation.
+
+Endpoints and covariates
+- Binary: response_achieved.
+- Survival: time_to_next_treatment (time, event), treatment_duration (time, discontinuation event recoded to 0/1), response_duration (time, progression event recoded to 0/1).
+- Continuous (restricted): response_time_to among y > 0.
+- Mandatory factor: stage_early (binary, reference level 0 where available).
+- Prespecified covariates considered for sequential adjustment: age, sex, BMI, PS ECOG, first systemic therapy, dyslipidemia_before, thyroid_disease_before, and monotherapy. Character covariates are analysed as factors; numeric covariates on their native scale.
+
+Analysis plan and reporting
+- EDA: We use skimr to summarise variables; quantify numeric associations via Spearman’s rank correlation (Hmisc rcorr for r and p) and visualise a lower-triangle heatmap with non-significant cells masked at α = 0.05; assess associations between categorical variables and stage_early using Pearson’s chi-square (all expected counts ≥ 5) or Fisher’s exact test otherwise.
+- Main models: Logistic regression for response_achieved; Cox proportional hazards models for each survival endpoint; linear regression for response_time_to (y > 0). We report effect sizes (OR, HR, or mean difference) with 95% CI and exact two-sided p-values. For interpretation, stage-specific estimates (probabilities/means) are derived via emmeans, and Kaplan–Meier curves (overall and by stage) are provided with medians and 95% CI.
+- Sequentially adjusted models: For each covariate, we fit outcome ~ stage_early + covariate (and, where feasible, outcome ~ stage_early * covariate) to recover stage-specific effects using emmeans/emtrends for logistic and linear families, and stratified Cox (stage-specific models) for survival. Results are exported as tables and accompanied by concise narrative summaries.
+- Assumptions/diagnostics: Logistic models are monitored for (quasi)separation; Cox models assume proportional hazards (results interpreted cautiously given sample size); linear models assume approximate normality and homoscedasticity (restriction to y > 0 mitigates zero-inflation). Analyses use complete-case records without imputation. All p-values are unadjusted and interpreted in context.
+
+```{r data_import, include=FALSE}
+# Robust import of d04
+obj_candidates <- c(
+  here::here("scripts","functions","OBJ_01.R"),
+  here::here("functions","OBJ_01.R"),
+  here::here("scripts","OBJ_01.R"),
+  here::here("OBJ_01.R")
+)
+ok_src <- FALSE
+for (p in obj_candidates) {
+  if (file.exists(p)) {
+    try(source(p), silent = TRUE)
+    if (exists("d04") && is.data.frame(d04)) { ok_src <- TRUE; break }
+  }
+}
+if (!ok_src) {
+  rdata_path <- here::here("reports","markD_03.RData")
+  if (file.exists(rdata_path)) {
+    env <- new.env(parent = emptyenv()); load(rdata_path, envir = env)
+    if (exists("d04", envir = env)) d04 <- get("d04", envir = env)
+  }
+}
+stopifnot(exists("d04"), is.data.frame(d04))
+
+# Drop identifiers
+if (requireNamespace("tidyselect", quietly = TRUE)) {
+  d04 <- d04 |> dplyr::select(-tidyselect::any_of(c("Initials","initials")))
+} else {
+  d04 <- d04 |> dplyr::select(-any_of(c("Initials","initials")))
+}
+
+# Duplicate response_time_to with zeros set to NA
+if ("response_time_to" %in% names(d04)) {
+  d04 <- d04 |> dplyr::mutate(response_time_to_2 = dplyr::na_if(.data$response_time_to, 0))
+}
+
+# Canonicalize df
+df <- d04 |>
+  janitor::clean_names() |>
+  dplyr::mutate(
+    discontinuation_reason = dplyr::if_else(.data$discontinuation_reason == 0, 0, 1),
+    sex = dplyr::if_else(.data$sex == "M", 1, 0)
+  )
+
+# Alias map and resolve
+alias_map <- list(
+  time_to_next_treatmen = c("ttnt"),
+  ttnt_achieved = c("ttnt_achieved"),
+  treatment_duration = c("treatment_duration"),
+  discontinuation_reason = c("discontinuation_reason"),
+  response_duration = c("response_duration"),
+  progression = c("progression"),
+  response_achieved = c("response_achieved"),
+  response_time_to = c("response_time_to"),
+  stage_early = c("stage_early")
+)
+resolve_col <- function(df, target, aliases) {
+  choices <- unique(c(target, aliases)); hit <- choices[choices %in% names(df)]
+  if (!length(hit)) stop(sprintf("Missing required column: %s", target))
+  hit[1]
+}
+col_time_ttnt <- resolve_col(df, "time_to_next_treatmen", alias_map$time_to_next_treatmen)
+col_event_ttnt <- resolve_col(df, "ttnt_achieved", alias_map$ttnt_achieved)
+```
+
+# Abbreviations
+
+| Feature | Description | Abbreviation |
+|----------------|-----------------------------------------|----------------|
+| Initials | XX = surname, forename | initials |
+| Center | CZ/DE | center |
+| Age | at the time of initiation of Bexaroten (years) | age |
+| Sex | M/F | sex |
+| BMI | at the time of initiation of Bexarotene | bmi |
+| PS ECOG | at the time of initiation of Bexarotene | ps_ecog |
+| CTCL type | according to WHO-EORTC 2018 | ctcl_type |
+| Stage | at the time of initiation of Bexarotene | stage |
+| Early Stage? | 1= yes 0= no | stage_early |
+| T | at the time of initiation of Bexarotene | t_stage |
+| N | at the time of initiation of Bexarotene | n_stage |
+| M | at the time of initiation of Bexarotene | m_stage |
+| B | at the time of initiation of Bexarotene | b_stage |
+| Time since Dg. | at the time of initiation of Bexarotene (months) | months_since_diagnosis |
+| Time since 1. clin. manifestation | Before the initiation of Bexarotene (months) | months_since_first_symptom |
+| Radiologic Examinations | Dg. Procedures, such as CT, PET, USG.. Any time during the course of disease (0=only clin. Exam.) | radiologic_exams |
+| SDT before | Skin directed therapy preceding the initiation of bexarotene, incl. Radiotherapy | sdt_before |
+| SysTh before | Systemic treatments preceding the initiation of bexarotene (incl. + TSEI with > 50% BSA) + TSEI >50% BSA | systh_before |
+| First syst, Therapy? | 1= yes 0= no | first_syst_th |
+| Initial dose | Daily Dose (mg/m²) | initial_dose_mg_m2 |
+| Final dose | The highest tolerable daily dose (mg/m²) | final_dose_mg_m2 |
+| Initial SysTh | Other antineoplastic Systemic therapies at the time of initiation of Bexarotene | initial_systh |
+| SysTh during the Treatment | Other antineoplastic Systemic therapies during the treatment with bexarotene (duration in months) | systh_during_treatment |
+| SDT during the Treatment | Skin directed Therapy during the treatment with bexarotene | sdt_during_treatment |
+| Best treatment response | SD, PR, CR | response_best |
+| Response? | 1=PR, CR, 0= SD,PD | response_achieved |
+| MonoTh? | was the best treatment response achieved during the monotherapy (1=yes, 0=no) | monotherapy |
+| Time to Response | time to achieve the best treatment response (0=only SD achieved) | response_time_to |
+| Duration of response | until progression or last visit (months) | response_duration |
+| Progression? | progression during the treatment (1=yes, 0=no) | progression |
+| Duration of treatment | (months) | treatment_duration |
+| Reason to discontinuation | 0=treatment continues | discontinuation_reason |
+| Discontinued because of AE? | 1=yes, 0=no | discontinued_due_to_ae |
+| TTNT | TTNT (x = TTNT not achieved ) | ttnt |
+| TTNT achieved? | 1=yes, 0=no (no "next treatment" given) | ttnt_achieved |
+| Comorbidities |  | comorbidities |
+| Dyslipidemia before bexaroten? | 1=yes, 0=no | dyslipidemia_before |
+| Thyroid disease before bexarotene? | 1=yes, 0=no | thyroid_disease_before |
+| Adverse events (treatment) | (all grades) | ae_complete_all |
+| AE Grade 3 / 4 (event. 5) |  | ae_complete_grade_3_4 |
+| AE Grade 3/4 | 1=yes, 0=no | ae_grade_3_4 |
+| AE hyperTAG any Grade? | 1=yes, 0=no | ae_hyperTAG_any |
+| AE hyperTAG Grade 3/4? | 1=yes, 0=no | ae_hyperTAG_grade_3_4 |
+| AE Liver Tests elevation (any grade) | 1=yes, 0=no | ae_liver |
+| Haematologic AE (any grade) | 1=yes, 0=no | ae_hemato |
+
+# Methods
+
+Design
+- Retrospective observational study of patients receiving bexarotene for cutaneous T-cell lymphoma. The analysis is exploratory and hypothesis-generating.
+
+Data source and reproducibility
+- The analytic dataset (`d04`) is imported via the project initialisation script (`OBJ_01.R`) and, if unavailable, from a versioned snapshot (`reports/markD_03.RData`). Processing steps are scripted in R Markdown; session details (R version and packages) appear in Session info.
+
+Participants
+- All cases available in `d04` are eligible. Analytic sample sizes vary by model due to listwise exclusion for missing values in variables required for a given analysis; model-wise N corresponds to the number of complete cases passed to each fit.
+
+Measures
+- Stage. Early-stage disease is operationalised as a binary factor `stage_early` with reference level 0 where present; numeric/logical encodings are converted to factors.
+- Outcomes.
+  - Time-to-event: time to next treatment (TTNT), treatment duration, and response duration. Each uses a time variable (months) and a binary event indicator. Times are parsed to numeric; events are coerced to 0/1. For treatment duration, any non-zero value is coded as an event (discontinuation).
+  - Binary: response achieved (`response_achieved`, 0/1).
+  - Continuous/restricted: time to response (`response_time_to`), analysed among observations with strictly positive times (y > 0).
+- Covariates. For sequential adjustments we consider: age, sex, BMI, PS ECOG, first systemic therapy, dyslipidemia_before, thyroid_disease_before, and monotherapy. Character covariates are analysed as factors; numeric covariates on their native scale.
+
+Data preparation
+- Column names are harmonised (lower snake_case) and aliases are resolved to canonical variable names per Abbreviations. Time variables are parsed with tolerant numeric conversion. Analyses use complete-case handling for variables required by a given model; no imputation is performed.
+
+Exploratory analysis
+- Descriptive summaries are produced with `skimr`. Pairwise associations between numeric variables are quantified using Spearman’s rank correlation (Hmisc `rcorr` for r and p), visualised by heatmaps with non-significant cells blanked at p ≥ 0.05. Associations between categorical variables and `stage_early` are assessed via Pearson’s chi-square when all expected counts are ≥ 5; otherwise Fisher’s exact test is used.
+
+Primary (main-effects) models
+- Logistic regression. `response_achieved ~ stage_early`. Effects are reported as odds ratios (OR) with 95% confidence intervals (CI) and two-sided Wald p-values. Stage-specific odds and 95% CI are derived from `emmeans` contrasts to aid interpretation.
+- Cox proportional hazards regression. Each survival endpoint is modelled as `Surv(time, event) ~ stage_early`. Effects are reported as hazard ratios (HR) with 95% CI and two-sided Wald p-values. Kaplan–Meier curves (overall and by stage) are generated for descriptive purposes; median survival times and 95% CI (via `survminer::surv_median`) are referenced for interpretation.
+- Linear regression. `response_time_to ~ stage_early` among observations with y > 0. Effects are reported as mean differences with 95% CI and two-sided p-values. Stage-specific estimates are obtained using `emmeans` contrasts.
+
+Sequentially adjusted models
+- For each prespecified covariate, we fit outcome `~ stage_early + covariate` and, where feasible, outcome `~ stage_early * covariate` to recover stage-specific effects using `emmeans`/`emtrends`. Modelling families match the outcome type (binomial for binary, Cox PH for survival, Gaussian for continuous y > 0). Survival figures are shown as unadjusted KM curves for transparency.
+
+Assumptions and diagnostics
+- Logistic models are monitored for quasi/complete separation; such cases are flagged by numerical warnings and interpreted cautiously.
+- Cox models assume proportional hazards.
+- Linear models assume approximate normality and homoscedasticity.
+- All p-values are unadjusted and should be interpreted in context.
+
+# EDA
+
+## Skim summary
+
+```{r eda_skim, message=FALSE, warning=FALSE}
+sk_tbl <- skimr::skim(df)
+knitr::kable(head(as.data.frame(sk_tbl), 20)) %>%
+  kableExtra::kable_styling(full_width = TRUE) %>%
+  kableExtra::footnote(general = "First 20 rows of skimr summary.", threeparttable = TRUE)
+```
+
+## Correlation (Spearman) 
+
+Goal: quantify pairwise associations among numeric variables. Method: Spearman's rank correlation (rho) with p-values; visualise a lower-triangle heatmap with numeric coefficients shown for significant correlations (alpha = 0.05). No files are written; results are displayed inline.
+
+```{r eda_corr_inline, message=FALSE, warning=FALSE}
+num_cols <- names(df)[sapply(df, is.numeric)]
+if (length(num_cols) >= 2) {
+  r <- suppressWarnings(cor(df[num_cols], use = "pairwise.complete.obs", method = "spearman"))
+  # Compute p-value matrix: prefer Hmisc::rcorr, else pairwise cor.test fallback
+  if (requireNamespace("Hmisc", quietly = TRUE)) {
+    rc <- Hmisc::rcorr(as.matrix(df[num_cols]), type = "spearman")
+    r <- rc$r; p <- rc$P
+  } else {
+    p <- matrix(NA_real_, nrow = ncol(r), ncol = ncol(r), dimnames = dimnames(r))
+    for (i in seq_len(ncol(r))) {
+      for (j in seq_len(ncol(r))) {
+        if (i == j) { p[i, j] <- NA_real_; next }
+        x <- df[[ num_cols[i] ]]; y <- df[[ num_cols[j] ]]
+        ok <- is.finite(x) & is.finite(y)
+        if (sum(ok) >= 3) {
+          p[i, j] <- tryCatch(stats::cor.test(x[ok], y[ok], method = "spearman", exact = FALSE)$p.value, error = function(e) NA_real_)
+        } else {
+          p[i, j] <- NA_real_
+        }
+      }
+    }
+  }
+  # Tidy table of pairs (top 15 by |rho|)
+  rn <- rownames(r); cn <- colnames(r)
+  pairs <- expand.grid(var1 = rn, var2 = cn, stringsAsFactors = FALSE)
+  pairs <- pairs[pairs$var1 < pairs$var2, ]
+  eda_corr_tbl <- dplyr::mutate(pairs,
+    rho = mapply(function(a,b) r[a,b], var1, var2),
+    p   = mapply(function(a,b) p[a,b], var1, var2)
+  )
+  top <- eda_corr_tbl |>
+    dplyr::filter(is.finite(rho)) |>
+    dplyr::arrange(dplyr::desc(abs(rho))) |>
+    dplyr::slice_head(n = 15)
+  knitr::kable(top, digits = 3, col.names = c("Variable 1","Variable 2","Spearman rho","p-value")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+
+  # Correlation heatmap with coefficients only for significant cells
+  if (requireNamespace("corrplot", quietly = TRUE)) {
+    r_plot <- r; sig <- !is.na(p) & p < 0.05
+    r_plot[!sig] <- NA_real_
+    corrplot::corrplot(r_plot, method = "color", type = "lower",
+                       tl.col = "black", tl.srt = 45,
+                       col = colorRampPalette(c("#2166AC","white","#B2182B"))(200),
+                       addCoef.col = "black", number.cex = 0.6, na.label = " ")
+  } else {
+    message("Package 'corrplot' not available; showing table only.")
+  }
+}
+```
+
+### Significant correlations (p < 0.05)
+
+```{r eda_corr_sig_tbl, message=FALSE, warning=FALSE}
+if (exists("eda_corr_tbl")) {
+  sig <- eda_corr_tbl |>
+    dplyr::filter(is.finite(rho), is.finite(p), p < 0.05) |>
+    dplyr::arrange(dplyr::desc(abs(rho)))
+  if (nrow(sig) > 0) {
+    knitr::kable(sig, digits = 3,
+                 col.names = c("Variable 1","Variable 2","Spearman rho","p-value")) %>%
+      kableExtra::kable_styling(full_width = FALSE,
+                                bootstrap_options = c("striped","hover","condensed","responsive"))
+  } else {
+    cat("No significant pairwise correlations at alpha = 0.05.\n")
+  }
+}
+```
+
+```{r eda_corr_sig_desc, results='asis'}
+if (exists("eda_corr_tbl")) {
+  sig <- eda_corr_tbl |>
+    dplyr::filter(is.finite(rho), is.finite(p), p < 0.05) |>
+    dplyr::arrange(dplyr::desc(abs(rho)))
+  k <- if (exists("num_cols")) length(num_cols) else length(unique(c(eda_corr_tbl$var1, eda_corr_tbl$var2)))
+  if (nrow(sig) > 0) {
+    fmt <- function(v1, v2, r, p) {
+      ptxt <- ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p)))
+      paste0(v1, " – ", v2, " (", "\u03C1 = ", sprintf("%.2f", r), ", ", ptxt, ")")
+    }
+    items <- mapply(fmt, sig$var1, sig$var2, sig$rho, sig$p, USE.NAMES = FALSE)
+    pairs_text <- paste(items, collapse = "; ")
+    cat(sprintf(
+      "We analyzed %d numeric variables. Significant pairwise correlations (Spearman, alpha = 0.05; unadjusted p-values): %d. Significant associations: %s.\n",
+      k, nrow(sig), pairs_text
+    ))
+  } else {
+    cat(sprintf(
+      "We analyzed %d numeric variables. No significant pairwise correlations were detected (Spearman, alpha = 0.05).\n",
+      k
+    ))
+  }
+}
+```
+
+## Factor vs stage_early tests
+
+Goal: assess association between each categorical variable (factors or 0/1/NA) and `stage_early`. Use Pearson's chi-square when expected counts are adequate; otherwise Fisher's exact test. Results are shown inline as a table (no files saved).
+
+```{r eda_factor_vs_stage, message=FALSE, warning=FALSE}
+# Resolve stage column robustly and coerce to factor (ref = "0" if present)
+col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+stage <- df[[col_stage]]
+if (is.numeric(stage) || is.logical(stage)) stage <- factor(stage)
+if (is.factor(stage) && "0" %in% levels(stage)) stage <- stats::relevel(stage, ref = "0")
+
+is_binary01 <- function(x) {
+  ux <- unique(x[!is.na(x)])
+  if (length(ux) == 0) return(FALSE)
+  if (is.logical(x)) return(TRUE)
+  if (is.numeric(x)) return(all(ux %in% c(0,1)))
+  FALSE
+}
+
+is_small_factor <- function(x, max_levels = 10) {
+  if (is.factor(x)) return(nlevels(x) <= max_levels)
+  if (is.character(x)) return(dplyr::n_distinct(x[!is.na(x)]) <= max_levels)
+  FALSE
+}
+
+candidate_vars <- setdiff(names(df), col_stage)
+keep <- purrr::keep(candidate_vars, function(v){
+  x <- df[[v]]
+  is_binary01(x) || is_small_factor(x)
+})
+
+analyze_var <- function(vname) {
+  x <- df[[vname]]
+  # Coerce to factor appropriately
+  if (is_binary01(x)) {
+    x <- factor(if (is.logical(x)) as.integer(x) else as.integer(x))
+  } else if (is.character(x)) {
+    x <- factor(x)
+  }
+  d <- dplyr::tibble(x = x, stage = stage) |> tidyr::drop_na()
+  if (!nrow(d)) return(dplyr::tibble(feature = vname, levels_n = NA_integer_, test = NA_character_, statistic = NA_real_, p_value = NA_real_, expected_min = NA_real_))
+  tab <- table(d$x, d$stage)
+  # Expected counts
+  rs <- rowSums(tab); cs <- colSums(tab); n <- sum(tab)
+  expected <- outer(rs, cs, FUN = function(a,b) a*b/n)
+  exp_min <- suppressWarnings(min(expected))
+  use_fisher <- any(expected < 5, na.rm = TRUE) || any(tab == 0)
+  if (use_fisher) {
+    ft <- tryCatch(stats::fisher.test(tab), error = function(e) NULL)
+    p <- if (!is.null(ft)) ft$p.value else NA_real_
+    stat <- NA_real_
+    tst <- "Fisher"
+  } else {
+    ct <- tryCatch(stats::chisq.test(tab, correct = FALSE), error = function(e) NULL)
+    p <- if (!is.null(ct)) ct$p.value else NA_real_
+    stat <- if (!is.null(ct)) unname(ct$statistic) else NA_real_
+    tst <- "Chi-square"
+  }
+  dplyr::tibble(feature = vname, levels_n = nrow(tab), test = tst, statistic = stat, p_value = p, expected_min = exp_min)
+}
+
+res <- purrr::map_dfr(keep, analyze_var) |>
+  dplyr::arrange(p_value)
+
+knitr::kable(res, digits = 4, col.names = c("Feature","Levels","Test","Statistic","p-value","Min expected")) %>%
+  kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+```
+
+```{r eda_factor_vs_stage_text, results='asis'}
+if (exists("res") && is.data.frame(res)) {
+  n_total  <- sum(is.finite(res$p_value))
+  n_fisher <- sum(res$test == "Fisher", na.rm = TRUE)
+  n_chi    <- sum(res$test == "Chi-square", na.rm = TRUE)
+  n_sig    <- sum(is.finite(res$p_value) & res$p_value < 0.05)
+
+  cat(sprintf(
+    "We tested associations between categorical features and stage_early using Pearson's chi-square when expected cell counts were adequate, and Fisher's exact test otherwise. In total, %d features were evaluated (%d by chi-square, %d by Fisher).\n",
+    n_total, n_chi, n_fisher
+  ))
+
+  cat("Choice of test. Fisher's exact test was used when any expected count was < 5 or when a contingency cell had zero counts; otherwise Pearson's chi-square test was applied. In the table, 'Min expected' shows the minimum expected frequency across cells; low values indicate that Fisher's test is more appropriate. The 'Statistic' column is the chi-square statistic (NA for Fisher). The 'p-value' column reports the test p-value.\n")
+
+  if (n_sig > 0) {
+    cat(sprintf(
+      "Interpretation. We observed %d features with p < 0.05. A significant p-value indicates statistical evidence of association between the feature and stage_early (unadjusted, descriptive). It does not imply causality, and multiple testing was not adjusted; results should be interpreted in clinical context.\n",
+      n_sig
+    ))
+  } else {
+    cat("Interpretation. No features showed p < 0.05; we did not find statistical evidence of association between these categorical features and stage_early at the 0.05 level (unadjusted).\n")
+  }
+}
+```
+
+```{r eda_factor_vs_stage_sig_report, results='asis'}
+# Easystats-like narrative for significant associations (p < 0.05)
+fmt_p_txt <- function(p) ifelse(is.na(p), "p = NA", ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p))))
+
+sig_feats <- try(res |> dplyr::filter(is.finite(p_value), p_value < 0.05) |> dplyr::pull(feature), silent = TRUE)
+if (!inherits(sig_feats, "try-error") && length(sig_feats)) {
+  for (vname in sig_feats) {
+    x <- df[[vname]]
+    # Coerce as in the test step
+    if (is.logical(x)) x <- as.integer(x)
+    if (is.numeric(x) && all(na.omit(unique(x)) %in% c(0,1))) x <- factor(as.integer(x))
+    if (is.character(x)) x <- factor(x)
+    d <- dplyr::tibble(x = x, stage = stage) |> tidyr::drop_na()
+    if (!nrow(d)) next
+    tab <- table(d$x, d$stage)
+    # Choose test and compute (again, now capturing df where available)
+    rs <- rowSums(tab); cs <- colSums(tab); n <- sum(tab)
+    expected <- outer(rs, cs, FUN = function(a,b) a*b/n)
+    use_fisher <- any(expected < 5, na.rm = TRUE) || any(tab == 0)
+    if (use_fisher) {
+      ft <- tryCatch(stats::fisher.test(tab), error = function(e) NULL)
+      stat_txt <- "Fisher's exact test"
+      p_txt <- if (!is.null(ft)) fmt_p_txt(ft$p.value) else "p = NA"
+    } else {
+      ct <- tryCatch(stats::chisq.test(tab, correct = FALSE), error = function(e) NULL)
+      df_txt <- if (!is.null(ct)) paste0("df = ", unname(ct$parameter)) else "df = NA"
+      stat_val <- if (!is.null(ct)) unname(ct$statistic) else NA_real_
+      stat_txt <- paste0("chi-square (", df_txt, ") = ", ifelse(is.finite(stat_val), sprintf("%.2f", stat_val), "NA"))
+      p_txt <- if (!is.null(ct)) fmt_p_txt(ct$p.value) else "p = NA"
+    }
+    # Quick direction insight: for binary x, report proportions by stage; else show most different level
+    dir_txt <- NULL
+    if (nrow(tab) == 2) {
+      prop_by_stage <- prop.table(tab, margin = 2)
+      cols <- colnames(prop_by_stage)
+      idx0 <- if ("0" %in% cols) which(cols=="0") else 1
+      idx1 <- if ("1" %in% cols) which(cols=="1") else min(2, ncol(prop_by_stage))
+      p1 <- prop_by_stage[2, idx1]; p0 <- prop_by_stage[2, idx0]
+      dir_txt <- paste0(
+        "Proportion of '", rownames(prop_by_stage)[2], "' by stage: ",
+        "stage_early = 0: ", sprintf("%.1f%%", 100*p0), ", stage_early = 1: ", sprintf("%.1f%%", 100*p1), "."
+      )
+    } else if (nrow(tab) > 2) {
+      prop_by_stage <- prop.table(tab, margin = 2)
+      cols <- colnames(prop_by_stage)
+      idx0 <- if ("0" %in% cols) which(cols=="0") else 1
+      idx1 <- if ("1" %in% cols) which(cols=="1") else min(2, ncol(prop_by_stage))
+      diffs <- abs(prop_by_stage[, idx1] - prop_by_stage[, idx0])
+      lvl <- names(which.max(diffs))
+      dir_txt <- paste0(
+        "Largest shift observed for level '", lvl, "' (",
+        sprintf("%.1f%%", 100*prop_by_stage[lvl, idx0]), " vs ", sprintf("%.1f%%", 100*prop_by_stage[lvl, idx1]), ")."
+      )
+    }
+    cat(paste0("- ", vname, ": significant association with stage_early (", stat_txt, ", ", p_txt, "). ", ifelse(is.null(dir_txt), "", dir_txt), "\n"))
+  }
+} else {
+  cat("No significant categorical associations to report (p < 0.05).\n")
+}
+```
+
+# Statistics
+
+## Main models
+
+### Logistic results
+
+<u>**The model equation:**</u>
+
+$$
+\log\frac{\Pr(\text{Response achieved}=1)}{\Pr(\text{Response achieved}=0)} 
+= \beta_0 + \beta_1\,\mathrm{(\text{Stage Early})}
+$$
+
+Where: beta_0 is the intercept (log-odds when stage_early = 0). beta_1 is the log-odds ratio for stage_early = 1 vs 0; the odds ratio is OR = exp(beta_1).
+
+
+```{r main_models_logistic_helpers, include=FALSE}
+fmt_p <- function(p) ifelse(is.na(p), "p = NA", ifelse(p < 0.001, "p < 0.001", paste0("p = ", sprintf("%.3f", p))))
+fmt_ci <- function(a,b, digits = 2) ifelse(is.na(a) | is.na(b), "[NA, NA]", sprintf("[%.2f, %.2f]", a, b))
+
+render_logistic_results <- function(df, alias_map) {
+  # Resolve columns
+  col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+  col_y     <- resolve_col(df, "response_achieved", alias_map$response_achieved)
+  # Prepare data
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(col_y), stage = dplyr::all_of(col_stage)) |>
+    dplyr::filter(!is.na(y), !is.na(stage)) |>
+    dplyr::mutate(y = as.factor(y))
+  if (nrow(d) == 0 || length(unique(d$stage)) < 2) {
+    return(list(table = NULL, text = "No logistic model could be fit: insufficient variation or data."))
+  }
+  # Fit model
+  mod <- tryCatch(stats::glm(y ~ stage, data = d, family = stats::binomial()), error = function(e) NULL)
+  if (is.null(mod)) return(list(table = NULL, text = "Logistic model failed to fit."))
+  log_all <- broom::tidy(mod, conf.int = TRUE, exponentiate = TRUE) |>
+    dplyr::filter(.data$term == "stage1" | stringr::str_detect(.data$term, "stage")) |>
+    dplyr::slice(1) |>
+    dplyr::transmute(estimate = .data$estimate, conf.low = .data$conf.low, conf.high = .data$conf.high, p.value = .data$p.value)
+  if (!nrow(log_all)) return(list(table = NULL, text = "No stage effect estimated in logistic model."))
+  or   <- as.numeric(log_all$estimate[1])
+  lcl  <- as.numeric(log_all$conf.low[1])
+  ucl  <- as.numeric(log_all$conf.high[1])
+  pval <- as.numeric(log_all$p.value[1])
+  # Stage-specific probabilities via emmeans
+  eml <- tryCatch({ emmeans::emmeans(mod, ~ stage, type = "response") |> as.data.frame() }, error = function(e) NULL)
+  p0 <- p1 <- NA_real_; p0_ci <- p1_ci <- NA_character_
+  if (!is.null(eml) && all(c("stage","prob","asymp.LCL","asymp.UCL") %in% names(eml))) {
+    r0 <- eml[as.character(eml$stage) %in% c("0",0),]
+    r1 <- eml[as.character(eml$stage) %in% c("1",1),]
+    if (nrow(r0)==1) { p0 <- r0$prob[1]; p0_ci <- sprintf("[%.2f, %.2f]", r0$asymp.LCL[1], r0$asymp.UCL[1]) }
+    if (nrow(r1)==1) { p1 <- r1$prob[1]; p1_ci <- sprintf("[%.2f, %.2f]", r1$asymp.LCL[1], r1$asymp.UCL[1]) }
+  }
+  tbl <- tibble::tibble(
+    outcome = "response_achieved",
+    OR = sprintf("%.2f", or), CI95 = sprintf("[%.2f, %.2f]", lcl, ucl), p = ifelse(pval < 0.001, "<0.001", sprintf("%.3f", pval)),
+    `stage_early=0 prob` = ifelse(is.finite(p0), sprintf("%.2f", p0), NA_character_), `95% CI (0)` = p0_ci,
+    `stage_early=1 prob` = ifelse(is.finite(p1), sprintf("%.2f", p1), NA_character_), `95% CI (1)` = p1_ci
+  )
+  bystage <- NULL
+  if (is.finite(p0) || is.finite(p1)) {
+    p0_txt <- if (is.finite(p0)) sprintf("stage_early = 0: %.2f (95%% CI %s)", p0, ifelse(is.na(p0_ci), "[NA, NA]", p0_ci)) else NA_character_
+    p1_txt <- if (is.finite(p1)) sprintf("stage_early = 1: %.2f (95%% CI %s)", p1, ifelse(is.na(p1_ci), "[NA, NA]", p1_ci)) else NA_character_
+    bystage <- paste(na.omit(c(p0_txt, p1_txt)), collapse = "; ")
+  }
+  txt <- paste0(
+    "We modeled response_achieved using logistic regression with stage_early as the predictor. ",
+    "In all patients, the effect of stage_early (1 vs 0) was OR = ", sprintf("%.2f", or),
+    " (95% CI ", sprintf("[%.2f, %.2f]", lcl, ucl), ", ", fmt_p(pval), ").",
+    if (!is.null(bystage) && nzchar(bystage)) paste0(" Estimated response probabilities by stage: ", bystage, ".") else ""
+  )
+  list(table = tbl, text = txt)
+}
+```
+
+```{r main_models_logistic_run}
+log_res <- try(render_logistic_results(df, alias_map), silent = TRUE)
+if (!inherits(log_res, "try-error") && !is.null(log_res$table)) {
+  knitr::kable(log_res$table, col.names = c("outcome","OR","95% CI","p","stage_early=0 prob","95% CI","stage_early=1 prob","95% CI")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+}
+```
+
+`r if (exists("log_res") && !is.null(log_res$text)) log_res$text`
+
+### Survival analyses
+
+<u>**The model equation:**</u>
+
+$$
+h(t \,|\, \mathrm{\text{Stage Early}}) = h_0(t)\,\exp\!\big(\beta_1\,\mathrm{\text{Stage Early}}\big)
+$$
+
+Where: h(t) is the hazard at time t; h0(t) is the baseline hazard (for stage_early = 0). beta_1 is the log-hazard ratio for stage_early = 1 vs 0; the hazard ratio is HR = exp(beta_1).
+
+
+```{r main_models_survival_helpers, include=FALSE}
+# Minimal helper to ensure/cast event indicator to 0/1
+ensure_binary_event_local <- function(v) {
+  if (is.numeric(v)) return(ifelse(is.na(v), NA_integer_, ifelse(v == 0, 0L, 1L)))
+  if (is.logical(v)) return(ifelse(is.na(v), NA_integer_, ifelse(v, 1L, 0L)))
+  lv <- tolower(trimws(as.character(v)))
+  yes <- c("1","y","yes","true","event","occurred","dead","progressed","failure")
+  no  <- c("0","n","no","false","censored","alive","none","success")
+  out <- ifelse(lv %in% yes, 1L, ifelse(lv %in% no, 0L, NA_integer_))
+  as.integer(out)
+}
+
+# Compute HR + KM medians for a single outcome spec
+survival_stats_for <- function(df, time_col, event_col, stage_col, label) {
+  d <- df |>
+    dplyr::select(time = dplyr::all_of(time_col), event = dplyr::all_of(event_col), stage = dplyr::all_of(stage_col)) |>
+    dplyr::mutate(
+      time = suppressWarnings(readr::parse_number(as.character(.data$time))),
+      event = ensure_binary_event_local(.data$event),
+      stage = as.factor(.data$stage)
+    ) |>
+    (\(dd) if (identical(label, "treatment_duration")) dplyr::mutate(dd, event = dplyr::if_else(dd$event == 0, 0L, 1L)) else dd)() |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(stage))
+
+  if (nrow(d) == 0 || length(unique(d$stage)) < 2) {
+    return(tibble::tibble(outcome = label,
+                          estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_,
+                          median_stage0 = NA_real_, median_stage0_ci = NA_character_,
+                          median_stage1 = NA_real_, median_stage1_ci = NA_character_))
+  }
+
+  m <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage, data = d), error = function(e) NULL)
+  if (is.null(m)) {
+    return(tibble::tibble(outcome = label,
+                          estimate = NA_real_, conf.low = NA_real_, conf.high = NA_real_, p.value = NA_real_,
+                          median_stage0 = NA_real_, median_stage0_ci = NA_character_,
+                          median_stage1 = NA_real_, median_stage1_ci = NA_character_))
+  }
+  coxt <- broom::tidy(m, conf.int = TRUE, exponentiate = TRUE) |>
+    dplyr::filter(stringr::str_detect(.data$term, "stage")) |>
+    dplyr::slice(1)
+
+  # KM medians by stage
+  fit <- survival::survfit(survival::Surv(time, event) ~ stage, data = d)
+  td <- try(survminer::surv_median(fit), silent = TRUE)
+  med0 <- med1 <- NA_real_; ci0 <- ci1 <- NA_character_
+  if (!inherits(td, "try-error") && all(c("strata","median","lower","upper") %in% names(td))) {
+    # Expect strata like 'stage=0' and 'stage=1'
+    s0 <- td[grepl("=0$", td$strata) | grepl("stage0$", td$strata), , drop = FALSE]
+    s1 <- td[grepl("=1$", td$strata) | grepl("stage1$", td$strata), , drop = FALSE]
+    if (nrow(s0) >= 1) {
+      med0 <- as.numeric(s0$median[1]); ci0 <- sprintf("[%.2f, %.2f]", as.numeric(s0$lower[1]), as.numeric(s0$upper[1]))
+    }
+    if (nrow(s1) >= 1) {
+      med1 <- as.numeric(s1$median[1]); ci1 <- sprintf("[%.2f, %.2f]", as.numeric(s1$lower[1]), as.numeric(s1$upper[1]))
+    }
+  }
+
+  tibble::tibble(outcome = label,
+                 estimate = coxt$estimate, conf.low = coxt$conf.low, conf.high = coxt$conf.high, p.value = coxt$p.value,
+                 median_stage0 = med0, median_stage0_ci = ci0,
+                 median_stage1 = med1, median_stage1_ci = ci1)
+}
+```
+
+```{r main_models_survival_run}
+# Resolve needed columns via alias map
+col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+col_time_ttnt <- resolve_col(df, "time_to_next_treatmen", alias_map$time_to_next_treatmen)
+col_event_ttnt <- resolve_col(df, "ttnt_achieved", alias_map$ttnt_achieved)
+col_treat_duration <- resolve_col(df, "treatment_duration", alias_map$treatment_duration)
+col_event_discont <- resolve_col(df, "discontinuation_reason", alias_map$discontinuation_reason)
+col_response_duration <- resolve_col(df, "response_duration", alias_map$response_duration)
+col_event_progression <- resolve_col(df, "progression", alias_map$progression)
+
+km_specs <- list(
+  list(label = "time_to_next_treatment", time = col_time_ttnt, event = col_event_ttnt),
+  list(label = "treatment_duration",     time = col_treat_duration, event = col_event_discont),
+  list(label = "response_duration",      time = col_response_duration, event = col_event_progression)
+)
+
+cox_main <- purrr::map_dfr(km_specs, function(sp) {
+  survival_stats_for(df, time_col = sp$time, event_col = sp$event, stage_col = col_stage, label = sp$label)
+})
+
+if (nrow(cox_main) > 0) {
+  tbl_main_surv <- cox_main |>
+    dplyr::transmute(outcome,
+                     HR = sprintf("%.2f", estimate),
+                     `95% CI` = sprintf("[%.2f, %.2f]", conf.low, conf.high),
+                     p = ifelse(p.value < 0.001, "<0.001", sprintf("%.3f", p.value)),
+                     `median (stage_early=0)` = ifelse(is.finite(median_stage0), sprintf("%.2f", median_stage0), NA_character_),
+                     `95% CI (0)` = median_stage0_ci,
+                     `median (stage_early=1)` = ifelse(is.finite(median_stage1), sprintf("%.2f", median_stage1), NA_character_),
+                     `95% CI (1)` = median_stage1_ci)
+
+  knitr::kable(tbl_main_surv,
+               col.names = c("outcome","HR","95% CI","p","median (stage_early=0)","95% CI","median (stage_early=1)","95% CI")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+    kableExtra::collapse_rows(columns = 1, valign = "top")
+}
+```
+
+```{r main_models_survival_text, include=FALSE}
+main_eval_surv_txt <- NULL
+if (exists("cox_main") && is.data.frame(cox_main) && nrow(cox_main) > 0) {
+  items <- apply(cox_main, 1, function(row){
+    hr  <- suppressWarnings(as.numeric(row[["estimate"]]))
+    lcl <- suppressWarnings(as.numeric(row[["conf.low"]]))
+    ucl <- suppressWarnings(as.numeric(row[["conf.high"]]))
+    p   <- suppressWarnings(as.numeric(row[["p.value"]]))
+    m0  <- suppressWarnings(as.numeric(row[["median_stage0"]]))
+    m1  <- suppressWarnings(as.numeric(row[["median_stage1"]]))
+    ci0 <- as.character(row[["median_stage0_ci"]])
+    ci1 <- as.character(row[["median_stage1_ci"]])
+    paste0(
+      row[["outcome"]], ": HR = ", sprintf("%.2f", hr),
+      " (95% CI ", sprintf("[%.2f, %.2f]", lcl, ucl), ", ", fmt_p(p), "); ",
+      "KM medians stage_early = 0: ", ifelse(is.finite(m0), sprintf("%.2f", m0), "NA"),
+      ifelse(is.na(ci0) || !nzchar(ci0), "", paste0(" ", ci0)), "; ",
+      "stage_early = 1: ", ifelse(is.finite(m1), sprintf("%.2f", m1), "NA"),
+      ifelse(is.na(ci1) || !nzchar(ci1), "", paste0(" ", ci1))
+    )
+  })
+  main_eval_surv_txt <- paste0(
+    "We fitted Cox proportional hazards models for survival endpoints with stage_early as the predictor. ",
+    "Across outcomes: ", paste(items, collapse = ". "), "."
+  )
+}
+```
+
+`r if (exists("main_eval_surv_txt")) main_eval_surv_txt`
+
+### Linear results
+
+<u>**The model equation:**</u>
+
+$$
+\text{Time to response} = \beta_0 + \beta_1\,\mathrm{\text{Stage Early}} + \varepsilon, \quad \varepsilon \sim \mathcal{N}(0,\sigma^2)
+$$
+
+Where: beta_0 is the expected value when stage_early = 0; beta_1 is the mean difference between stage_early = 1 and 0; epsilon is a random error with mean 0 and variance sigma^2.
+
+
+
+```{r main_models_linear_text, include=FALSE}
+# Build narrative for response_time_to ~ stage (y > 0)
+main_eval_lin_txt <- NULL
+col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+col_response_time_to <- resolve_col(df, "response_time_to", alias_map$response_time_to)
+
+d_lin <- df |>
+  dplyr::select(y = dplyr::all_of(col_response_time_to), stage = dplyr::all_of(col_stage)) |>
+  dplyr::filter(!is.na(y), !is.na(stage), y > 0)
+
+if (nrow(d_lin) >= 2 && length(unique(d_lin$stage)) >= 2) {
+  mod_lin <- tryCatch(stats::lm(y ~ stage, data = d_lin), error = function(e) NULL)
+  if (!is.null(mod_lin)) {
+    lin_all <- broom::tidy(mod_lin, conf.int = TRUE) |>
+      dplyr::filter(stringr::str_detect(.data$term, "stage")) |>
+      dplyr::slice(1)
+    if (nrow(lin_all) == 1) {
+      md   <- as.numeric(lin_all$estimate[1])
+      lcl  <- as.numeric(lin_all$conf.low[1])
+      ucl  <- as.numeric(lin_all$conf.high[1])
+      pval <- as.numeric(lin_all$p.value[1])
+      # Stage-specific means via emmeans
+      eml <- tryCatch({ emmeans::emmeans(mod_lin, ~ stage) |> as.data.frame() }, error = function(e) NULL)
+      bystage_lin <- NULL
+      if (!is.null(eml) && all(c("stage","emmean","lower.CL","upper.CL") %in% names(eml))) {
+        m0 <- eml[as.character(eml$stage) %in% c("0",0),]
+        m1 <- eml[as.character(eml$stage) %in% c("1",1),]
+        m0_txt <- if (nrow(m0)==1) sprintf("stage_early = 0: %.2f (95%% CI %s)", m0$emmean[1], fmt_ci(m0$lower.CL[1], m0$upper.CL[1])) else NA_character_
+        m1_txt <- if (nrow(m1)==1) sprintf("stage_early = 1: %.2f (95%% CI %s)", m1$emmean[1], fmt_ci(m1$lower.CL[1], m1$upper.CL[1])) else NA_character_
+        bystage_lin <- paste(na.omit(c(m0_txt, m1_txt)), collapse = "; ")
+      }
+      main_eval_lin_txt <- paste0(
+        "We modeled response_time_to (restricted to y > 0) using linear regression with stage_early as the predictor. ",
+        "In all patients, the mean difference (1 vs 0) was ", sprintf("%.2f", md),
+        " (95% CI ", sprintf("[%.2f, %.2f]", lcl, ucl), ", ", fmt_p(pval), ").",
+        if (!is.null(bystage_lin) && nzchar(bystage_lin)) paste0(" Estimated means by stage: ", bystage_lin, ".") else ""
+      )
+    }
+  }
+}
+```
+
+ 
+
+```{r main_models_linear_table, include=FALSE}
+render_linear_results_table <- function(df, alias_map) {
+  col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+  col_response_time_to <- resolve_col(df, "response_time_to", alias_map$response_time_to)
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(col_response_time_to), stage = dplyr::all_of(col_stage)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), y > 0)
+  if (nrow(d) < 2 || length(unique(d$stage)) < 2) return(NULL)
+  mod_lin <- tryCatch(stats::lm(y ~ stage, data = d), error = function(e) NULL)
+  if (is.null(mod_lin)) return(NULL)
+  lin_all <- broom::tidy(mod_lin, conf.int = TRUE) |>
+    dplyr::filter(stringr::str_detect(.data$term, "stage")) |>
+    dplyr::slice(1)
+  if (nrow(lin_all) != 1) return(NULL)
+  md   <- as.numeric(lin_all$estimate[1])
+  lcl  <- as.numeric(lin_all$conf.low[1])
+  ucl  <- as.numeric(lin_all$conf.high[1])
+  pval <- as.numeric(lin_all$p.value[1])
+  eml <- tryCatch({ emmeans::emmeans(mod_lin, ~ stage) |> as.data.frame() }, error = function(e) NULL)
+  m0 <- m1 <- NA_real_; m0_ci <- m1_ci <- NA_character_
+  if (!is.null(eml) && all(c("stage","emmean","lower.CL","upper.CL") %in% names(eml))) {
+    r0 <- eml[as.character(eml$stage) %in% c("0",0),]
+    r1 <- eml[as.character(eml$stage) %in% c("1",1),]
+    if (nrow(r0)==1) { m0 <- r0$emmean[1]; m0_ci <- sprintf("[%.2f, %.2f]", r0$lower.CL[1], r0$upper.CL[1]) }
+    if (nrow(r1)==1) { m1 <- r1$emmean[1]; m1_ci <- sprintf("[%.2f, %.2f]", r1$lower.CL[1], r1$upper.CL[1]) }
+  }
+  tibble::tibble(
+    outcome = "response_time_to",
+    `mean diff (1-0)` = sprintf("%.2f", md), `95% CI` = sprintf("[%.2f, %.2f]", lcl, ucl), p = ifelse(pval < 0.001, "<0.001", sprintf("%.3f", pval)),
+    `mean (stage_early=0)` = ifelse(is.finite(m0), sprintf("%.2f", m0), NA_character_), `95% CI (0)` = m0_ci,
+    `mean (stage_early=1)` = ifelse(is.finite(m1), sprintf("%.2f", m1), NA_character_), `95% CI (1)` = m1_ci
+  )
+}
+```
+
+
+```{r main_models_linear_table_run}
+tbl_lin <- try(render_linear_results_table(df, alias_map), silent = TRUE)
+if (!inherits(tbl_lin, "try-error") && !is.null(tbl_lin)) {
+  knitr::kable(tbl_lin, col.names = c("outcome","mean diff (1-0)","95% CI","p","mean (stage_early=0)","95% CI","mean (stage_early=1)","95% CI")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+}
+```
+
+
+`r if (exists("main_eval_lin_txt")) main_eval_lin_txt`
+
+### Plots - main {.tabset}
+
+#### Survival {.unnumbered}
+
+```{r main_plots_survival_main, message=FALSE, warning=FALSE}
+# Inline KM figures for each survival outcome (All vs By stage)
+if (exists("km_specs") && length(km_specs) > 0) {
+  for (sp in km_specs) {
+    d <- df |>
+      dplyr::select(time = dplyr::all_of(sp$time),
+                    event = dplyr::all_of(sp$event),
+                    stage = dplyr::all_of(col_stage)) |>
+      dplyr::mutate(
+        time  = suppressWarnings(readr::parse_number(as.character(.data$time))),
+        event = ensure_binary_event_local(.data$event),
+        stage = as.factor(.data$stage)
+      ) |>
+      (\(d) if (identical(sp$label, "treatment_duration")) dplyr::mutate(d, event = dplyr::if_else(d$event == 0, 0L, 1L)) else d)() |>
+      dplyr::filter(!is.na(time), !is.na(event))
+
+    if (nrow(d) < 5) next
+
+    # Overall
+    f_all <- survival::survfit(survival::Surv(time, event) ~ 1, data = d)
+    pal_all <- "#1f78b4"
+    p_left <- survminer::ggsurvplot(f_all, data = d, conf.int = TRUE, legend = "none", palette = pal_all)$plot +
+      ggplot2::ggtitle(paste0(sp$label, " (All)"))
+    md_all <- try(survminer::surv_median(f_all), silent = TRUE)
+    if (!inherits(md_all, "try-error") && isTRUE(is.finite(md_all$median[1])))
+      p_left <- p_left + ggplot2::geom_vline(xintercept = md_all$median[1], linetype = "dashed", color = pal_all)
+
+    # By stage
+    f_by <- survival::survfit(survival::Surv(time, event) ~ stage, data = d)
+    p_right_list <- survminer::ggsurvplot(f_by, data = d, conf.int = TRUE)
+    p_right <- p_right_list$plot + ggplot2::ggtitle(paste0(sp$label, " (By stage)"))
+    str_order <- unique(as.character(p_right$data$strata))
+    pal <- scales::hue_pal()(length(str_order))
+    p_right <- p_right + ggplot2::scale_color_manual(values = stats::setNames(pal, str_order))
+    md_by <- try(survminer::surv_median(f_by), silent = TRUE)
+    if (!inherits(md_by, "try-error")) {
+      for (i in seq_along(str_order)) {
+        v <- md_by$median[md_by$strata == str_order[i]]
+        if (length(v) == 1 && is.finite(v))
+          p_right <- p_right + ggplot2::geom_vline(xintercept = v, linetype = "dashed", color = pal[i])
+      }
+    }
+
+    if (requireNamespace("cowplot", quietly = TRUE)) {
+      print(cowplot::plot_grid(p_left, p_right, ncol = 2))
+    } else {
+      print(p_left); print(p_right)
+    }
+  }
+}
+```
+
+#### Linear {.unnumbered}
+
+```{r main_plots_linear_main, message=FALSE, warning=FALSE}
+# Jitter plot of response_time_to by stage with bootstrap median and 95% CI (5000x)
+col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+col_response_time_to <- resolve_col(df, "response_time_to", alias_map$response_time_to)
+d_lin <- df |>
+  dplyr::select(y = dplyr::all_of(col_response_time_to), stage = dplyr::all_of(col_stage)) |>
+  dplyr::filter(!is.na(y), !is.na(stage), y > 0) |>
+  dplyr::mutate(stage = as.factor(stage))
+
+boot_ci <- function(x, n = 5000L, conf = c(0.025, 0.975)) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2) return(c(med = NA_real_, l = NA_real_, u = NA_real_))
+  meds <- replicate(n, stats::median(sample(x, replace = TRUE)))
+  c(med = stats::median(x), l = stats::quantile(meds, conf[1]), u = stats::quantile(meds, conf[2]))
+}
+
+if (nrow(d_lin) >= 2) {
+  pal <- scales::hue_pal()(length(levels(d_lin$stage)))
+  names(pal) <- levels(d_lin$stage)
+  # Compute bootstrap CI by stage
+  ci_df <- d_lin |>
+    dplyr::group_by(stage) |>
+    dplyr::summarise(
+      med = stats::median(y, na.rm = TRUE),
+      l = {
+        meds <- replicate(5000L, stats::median(sample(y, replace = TRUE)))
+        stats::quantile(meds, 0.025, names = FALSE)
+      },
+      u = {
+        meds <- replicate(5000L, stats::median(sample(y, replace = TRUE)))
+        stats::quantile(meds, 0.975, names = FALSE)
+      },
+      .groups = "drop"
+    )
+
+  p <- ggplot2::ggplot(d_lin, ggplot2::aes(x = stage, y = y, color = stage)) +
+    ggplot2::geom_jitter(width = 0.15, alpha = 0.6, size = 1.7) +
+    ggplot2::geom_errorbar(data = ci_df, ggplot2::aes(x = stage, ymin = l, ymax = u), width = 0.15, color = "black", inherit.aes = FALSE) +
+    ggplot2::geom_point(data = ci_df, ggplot2::aes(x = stage, y = med), color = "black", size = 3, inherit.aes = FALSE) +
+    ggplot2::scale_color_manual(values = pal) +
+    ggplot2::labs(x = "stage_early", y = "response_time_to", title = "Response time to by stage (median with 95% CI)") +
+    ggplot2::theme_minimal(base_size = 12)
+  print(p)
+}
+```
+
+#### Logistic {.unnumbered}
+
+```{r main_plots_logistic_main, message=FALSE, warning=FALSE}
+# Stacked column chart: response_achieved by stage_early (proportion within stage)
+col_stage <- resolve_col(df, "stage_early", alias_map$stage_early)
+col_response_achieved <- resolve_col(df, "response_achieved", alias_map$response_achieved)
+d_log <- df |>
+  dplyr::select(y = dplyr::all_of(col_response_achieved), stage = dplyr::all_of(col_stage)) |>
+  dplyr::filter(!is.na(y), !is.na(stage)) |>
+  dplyr::mutate(stage = as.factor(stage), y = factor(y))
+
+if (nrow(d_log) >= 1) {
+  pal <- scales::hue_pal()(length(levels(d_log$y)))
+  names(pal) <- levels(d_log$y)
+  p <- ggplot2::ggplot(d_log, ggplot2::aes(x = stage, fill = y)) +
+    ggplot2::geom_bar(position = "fill", color = "white") +
+    ggplot2::scale_y_continuous(labels = scales::percent_format()) +
+    ggplot2::scale_fill_manual(values = pal, name = "response_achieved") +
+    ggplot2::labs(x = "stage_early", y = "proportion", title = "Response achieved by stage (stacked)") +
+    ggplot2::theme_minimal(base_size = 12)
+  print(p)
+}
+```
+
+## Adjusted models - Stage Early  
+
+### Logistic results
+
+<u>**The model equation (adjusted):**</u>
+
+$$
+\log\left(\frac{\Pr(\text{Response achieved}=1)}{\Pr(\text{Response achieved}=0)}\right)
+= \beta_0 + \beta_1\,\text{Stage Early} + \beta_2\,\text{Covariate}
+$$
+
+Where: beta_0 is the intercept (log-odds when stage_early = 0 and the covariate is at its reference/0), beta_1 is the log-odds ratio for stage_early = 1 vs 0 (holding the covariate fixed), and beta_2 is the covariate effect (for factors: contrast vs the reference level; for numeric covariates: effect per one-unit increase). Effects are reported on the OR scale: OR = exp(beta).
+
+
+
+```{r adjusted_logistic_results, message=FALSE, warning=FALSE}
+# Helper: pick a reasonable contrast level for factors (mirrors earlier helpers)
+pick_contrast_level <- function(x) {
+  xf <- as.factor(x)
+  levs <- levels(xf)
+  if (length(levs) <= 1) return(NULL)
+  ref <- levs[1]
+  cand <- levs[levs != ref]
+  if (!length(cand)) return(NULL)
+  if ("1" %in% cand) return("1")
+  cl <- tolower(cand)
+  if (any(cl == "yes")) return(cand[which(cl == "yes")[1]])
+  tab <- sort(table(xf[xf != ref]), decreasing = TRUE)
+  if (length(tab)) return(names(tab)[1])
+  cand[1]
+}
+
+coerce_predictor <- function(x) {
+  if (is.factor(x)) return(x)
+  if (is.character(x)) return(factor(x))
+  if (is.logical(x)) return(factor(as.integer(x)))
+  # leave numeric as is
+  x
+}
+
+resolve_or_identity <- function(df, nm) {
+  # Use resolve_col if alias exists; otherwise return name if present
+  if (exists("alias_map")) {
+    alias <- try(alias_map[[nm]], silent = TRUE)
+    if (!inherits(alias, "try-error")) {
+      hit <- try(resolve_col(df, nm, alias), silent = TRUE)
+      if (!inherits(hit, "try-error") && is.character(hit) && length(hit) == 1) return(hit)
+    }
+  }
+  if (nm %in% names(df)) return(nm)
+  nm
+}
+
+fit_adj_logistic <- function(df, outcome_col, stage_col, covar_col) {
+  d_mod <- df |>
+    dplyr::select(y = dplyr::all_of(outcome_col), stage = dplyr::all_of(stage_col), x = dplyr::all_of(covar_col)) |>
+    dplyr::mutate(y = as.factor(y), x = coerce_predictor(x)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), !is.na(x))
+  if (nrow(d_mod) == 0 || length(unique(d_mod$stage)) < 2) return(NULL)
+  m_all <- tryCatch(stats::glm(y ~ stage + x, data = d_mod, family = stats::binomial()), error = function(e) NULL)
+  if (is.null(m_all)) return(NULL)
+  tt <- broom::tidy(m_all, conf.int = TRUE, exponentiate = TRUE)
+  # stage term: prefer term that contains 'stage'
+  st <- tt |>
+    dplyr::filter(stringr::str_detect(.data$term, "^stage")) |>
+    dplyr::slice(1)
+  # covariate term: if factor, pick one contrast level
+  cv_row <- NULL
+  if (is.factor(d_mod$x)) {
+    lab <- pick_contrast_level(d_mod$x)
+    if (is.null(lab)) {
+      cv_row <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+    } else {
+      # term will look like 'xLEVEL'
+      cv_row <- tt |> dplyr::filter(.data$term == paste0("x", lab)) |> dplyr::slice(1)
+      if (nrow(cv_row) == 0) cv_row <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+    }
+  } else {
+    cv_row <- tt |> dplyr::filter(.data$term == "x") |> dplyr::slice(1)
+  }
+  if (nrow(st) == 0 || nrow(cv_row) == 0) return(NULL)
+  tibble::tibble(
+    `estimate (stage_early)` = st$estimate,
+    `p-value (stage_early)` = st$p.value,
+    `95%CI (stage_early)` = sprintf("[%.2f, %.2f]", st$conf.low, st$conf.high),
+    `estimate (covariate)` = cv_row$estimate,
+    `p-value (covariate)` = cv_row$p.value,
+    `95%CI (covariate)` = sprintf("[%.2f, %.2f]", cv_row$conf.low, cv_row$conf.high)
+  )
+}
+
+col_stage <- resolve_or_identity(df, "stage_early")
+col_y     <- resolve_or_identity(df, "response_achieved")
+covars <- c("age","sex","bmi","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4")
+covars <- covars[covars %in% names(df)]
+
+adj_spec <- tidyr::expand_grid(Outcomes = col_y, Covariate = covars) |>
+  dplyr::mutate(results = purrr::map(Covariate, ~ fit_adj_logistic(df, outcome_col = col_y, stage_col = col_stage, covar_col = .x))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results)
+
+if (nrow(adj_spec) > 0) {
+  # Optional formatting for p-values
+  fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+  out_tbl <- adj_spec |>
+    dplyr::mutate(
+      `p-value (stage_early)` = fmt_p(`p-value (stage_early)`),
+      `p-value (covariate)`   = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = "l", col.names = c("Outcomes","Covariate","estimate (stage_early)","p-value (stage_early)","95%CI (stage_early)","estimate (covariate)","p-value (covariate)","95%CI (covariate)")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+} else {
+  cat("No adjusted logistic results available.\n")
+}
+```
+
+
+```{r adjusted_logistic_stagewise, message=FALSE, warning=FALSE}
+# Stage-specific covariate effects (within-stage) via emmeans
+if (!requireNamespace("emmeans", quietly = TRUE)) {
+  cat("emmeans package not available; stage-wise covariate effects skipped.\n")
+} else {
+  fmt_p_str <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+  fmt_ci_str <- function(l, u) ifelse(is.na(l) | is.na(u), NA_character_, sprintf("[%.2f, %.2f]", l, u))
+
+  compute_stagewise <- function(df, outcome_col, stage_col, covar_col) {
+    safe_num <- function(x) {
+      if (is.null(x) || length(x) < 1) return(NA_real_)
+      y <- suppressWarnings(as.numeric(x[1]))
+      if (length(y) < 1) return(NA_real_)
+      y
+    }
+    d_mod <- df |>
+      dplyr::select(y = dplyr::all_of(outcome_col), stage = dplyr::all_of(stage_col), x = dplyr::all_of(covar_col)) |>
+      dplyr::mutate(y = as.factor(y), stage = as.factor(stage)) |>
+      dplyr::filter(!is.na(y), !is.na(stage), !is.na(x))
+    if (nrow(d_mod) == 0 || length(unique(d_mod$stage)) < 2) return(NULL)
+    # Special handling for numeric age/bmi: report subgroup means instead of OR
+    is_special_mean <- covar_col %in% c("age", "bmi")
+    if (is_special_mean && is.numeric(d_mod$x)) {
+      # compute bootstrap 95% CI for mean within each stage
+      boot_mean_ci <- function(v, n = 2000L, conf = c(0.025, 0.975)) {
+        v <- v[is.finite(v)]
+        if (length(v) < 2) return(c(mean = mean(v), l = NA_real_, u = NA_real_))
+        b <- replicate(n, mean(sample(v, replace = TRUE)))
+        c(mean = mean(v), l = stats::quantile(b, conf[1], names = FALSE), u = stats::quantile(b, conf[2], names = FALSE))
+      }
+      st_levels <- levels(d_mod$stage)
+      # Resolve stage labels robustly
+      st_vals <- st_levels
+      stage0_lab <- if (length(st_vals) >= 1) (if ("0" %in% st_vals) "0" else st_vals[1]) else NA_character_
+      stage1_lab <- if (length(st_vals) >= 2) (if ("1" %in% st_vals) "1" else st_vals[2]) else NA_character_
+
+      out <- tibble::tibble(
+        `estimate (stage_early = 0)` = NA_real_,
+        `p-value (stage_early = 0)` = NA_character_,
+        `95%CI (stage_early = 0)` = NA_character_,
+        `estimate (stage_early = 1)` = NA_real_,
+        `p-value (stage_early = 1)` = NA_character_,
+        `95%CI (stage_early = 1)` = NA_character_
+      )
+      if (!is.na(stage0_lab)) {
+        v0 <- d_mod$x[as.character(d_mod$stage) == stage0_lab]
+        ci0 <- boot_mean_ci(v0)
+        out$`estimate (stage_early = 0)` <- ci0[["mean"]]
+        out$`95%CI (stage_early = 0)` <- fmt_ci_str(ci0[["l"]], ci0[["u"]])
+        # p-value: association within stage via logistic regression slope
+        d0 <- d_mod[as.character(d_mod$stage) == stage0_lab, , drop = FALSE]
+        p0 <- tryCatch({
+          m0 <- stats::glm(y ~ x, data = d0, family = stats::binomial())
+          as.numeric(broom::tidy(m0) |>
+            dplyr::filter(.data$term == "x") |>
+            dplyr::slice(1) |>
+            dplyr::pull(.data$p.value))
+        }, error = function(e) NA_real_)
+        out$`p-value (stage_early = 0)` <- fmt_p_str(p0)
+      }
+      if (!is.na(stage1_lab)) {
+        v1 <- d_mod$x[as.character(d_mod$stage) == stage1_lab]
+        ci1 <- boot_mean_ci(v1)
+        out$`estimate (stage_early = 1)` <- ci1[["mean"]]
+        out$`95%CI (stage_early = 1)` <- fmt_ci_str(ci1[["l"]], ci1[["u"]])
+        d1 <- d_mod[as.character(d_mod$stage) == stage1_lab, , drop = FALSE]
+        p1 <- tryCatch({
+          m1 <- stats::glm(y ~ x, data = d1, family = stats::binomial())
+          as.numeric(broom::tidy(m1) |>
+            dplyr::filter(.data$term == "x") |>
+            dplyr::slice(1) |>
+            dplyr::pull(.data$p.value))
+        }, error = function(e) NA_real_)
+        out$`p-value (stage_early = 1)` <- fmt_p_str(p1)
+      }
+      return(out)
+    }
+
+    # Default: fit interaction model and use emmeans/emtrends to report OR
+    # Treat numeric binary (0/1) predictors as factors to obtain a clear 1 vs 0 OR
+    if (is.numeric(d_mod$x)) {
+      ux <- unique(d_mod$x[!is.na(d_mod$x)])
+      if (length(ux) > 0 && all(ux %in% c(0,1))) {
+        d_mod$x <- factor(as.integer(d_mod$x))
+      }
+    }
+    d_mod <- d_mod |> dplyr::mutate(x = coerce_predictor(x))
+    m_int <- tryCatch(stats::glm(y ~ stage * x, data = d_mod, family = stats::binomial()), error = function(e) NULL)
+    if (is.null(m_int)) return(NULL)
+
+    # Note: do NOT include 'outcomes' or 'covariates' here to avoid name collision on unnest
+    out <- tibble::tibble(
+      `estimate (stage_early = 0)` = NA_real_,
+      `p-value (stage_early = 0)` = NA_character_,
+      `95%CI (stage_early = 0)` = NA_character_,
+      `estimate (stage_early = 1)` = NA_real_,
+      `p-value (stage_early = 1)` = NA_character_,
+      `95%CI (stage_early = 1)` = NA_character_
+    )
+
+    st_levels <- levels(d_mod$stage)
+
+    if (is.factor(d_mod$x)) {
+      em <- try(emmeans::emmeans(m_int, specs = ~ x | stage), silent = TRUE)
+      if (!inherits(em, "try-error")) {
+        cn <- try(emmeans::contrast(em, method = "trt.vs.ctrl", ref = 1), silent = TRUE)
+        sm <- try(as.data.frame(summary(cn, infer = TRUE)), silent = TRUE)
+        if (!inherits(sm, "try-error") && nrow(sm) > 0) {
+          # Determine CI column names robustly
+          lo_name <- if ("lower.CL" %in% names(sm)) "lower.CL" else if ("asymp.LCL" %in% names(sm)) "asymp.LCL" else NA_character_
+          up_name <- if ("upper.CL" %in% names(sm)) "upper.CL" else if ("asymp.UCL" %in% names(sm)) "asymp.UCL" else NA_character_
+          # Resolve stage labels present in summary
+          st_vals <- if ("stage" %in% names(sm)) unique(as.character(sm$stage)) else levels(d_mod$stage)
+          stage0_lab <- if (length(st_vals) >= 1) (if ("0" %in% st_vals) "0" else st_vals[1]) else NA_character_
+          stage1_lab <- if (length(st_vals) >= 2) (if ("1" %in% st_vals) "1" else st_vals[2]) else NA_character_
+          # Pick one contrast row per stage label
+          if (!is.na(stage0_lab)) {
+            r0 <- sm[as.character(sm$stage) == stage0_lab, , drop = FALSE]
+            if (nrow(r0) >= 1) {
+              est0 <- safe_num(r0$estimate)
+              lo0  <- if (!is.na(lo_name)) safe_num(r0[[lo_name]]) else NA_real_
+              up0  <- if (!is.na(up_name)) safe_num(r0[[up_name]]) else NA_real_
+              p0v  <- safe_num(r0$p.value)
+              out$`estimate (stage_early = 0)` <- ifelse(is.na(est0), NA_real_, exp(est0))
+              out$`p-value (stage_early = 0)` <- fmt_p_str(p0v)
+              out$`95%CI (stage_early = 0)` <- fmt_ci_str(ifelse(is.na(lo0), NA_real_, exp(lo0)), ifelse(is.na(up0), NA_real_, exp(up0)))
+            }
+          }
+          if (!is.na(stage1_lab)) {
+            r1 <- sm[as.character(sm$stage) == stage1_lab, , drop = FALSE]
+            if (nrow(r1) >= 1) {
+              est1 <- safe_num(r1$estimate)
+              lo1  <- if (!is.na(lo_name)) safe_num(r1[[lo_name]]) else NA_real_
+              up1  <- if (!is.na(up_name)) safe_num(r1[[up_name]]) else NA_real_
+              p1v  <- safe_num(r1$p.value)
+              out$`estimate (stage_early = 1)` <- ifelse(is.na(est1), NA_real_, exp(est1))
+              out$`p-value (stage_early = 1)` <- fmt_p_str(p1v)
+              out$`95%CI (stage_early = 1)` <- fmt_ci_str(ifelse(is.na(lo1), NA_real_, exp(lo1)), ifelse(is.na(up1), NA_real_, exp(up1)))
+            }
+          }
+        }
+      }
+    } else {
+      tr <- try(emmeans::emtrends(m_int, specs = ~ stage, var = "x"), silent = TRUE)
+      if (!inherits(tr, "try-error")) {
+        smt <- try(as.data.frame(summary(tr, infer = TRUE)), silent = TRUE)
+        if (!inherits(smt, "try-error") && nrow(smt) > 0) {
+          lo_name <- if ("lower.CL" %in% names(smt)) "lower.CL" else if ("asymp.LCL" %in% names(smt)) "asymp.LCL" else NA_character_
+          up_name <- if ("upper.CL" %in% names(smt)) "upper.CL" else if ("asymp.UCL" %in% names(smt)) "asymp.UCL" else NA_character_
+          trend_name <- if ("emtrends" %in% names(smt)) "emtrends" else if ("x.trend" %in% names(smt)) "x.trend" else if ("trend" %in% names(smt)) "trend" else NA_character_
+          st_vals <- if ("stage" %in% names(smt)) unique(as.character(smt$stage)) else levels(d_mod$stage)
+          stage0_lab <- if (length(st_vals) >= 1) (if ("0" %in% st_vals) "0" else st_vals[1]) else NA_character_
+          stage1_lab <- if (length(st_vals) >= 2) (if ("1" %in% st_vals) "1" else st_vals[2]) else NA_character_
+          if (!is.na(stage0_lab)) {
+            r0 <- smt[as.character(smt$stage) == stage0_lab, , drop = FALSE]
+            if (nrow(r0) >= 1) {
+              est0 <- if (!is.na(trend_name)) safe_num(r0[[trend_name]]) else NA_real_
+              lo0  <- if (!is.na(lo_name)) safe_num(r0[[lo_name]]) else NA_real_
+              up0  <- if (!is.na(up_name)) safe_num(r0[[up_name]]) else NA_real_
+              p0v  <- safe_num(r0$p.value)
+              out$`estimate (stage_early = 0)` <- ifelse(is.na(est0), NA_real_, exp(est0))
+              out$`p-value (stage_early = 0)` <- fmt_p_str(p0v)
+              out$`95%CI (stage_early = 0)` <- fmt_ci_str(ifelse(is.na(lo0), NA_real_, exp(lo0)), ifelse(is.na(up0), NA_real_, exp(up0)))
+            }
+          }
+          if (!is.na(stage1_lab)) {
+            r1 <- smt[as.character(smt$stage) == stage1_lab, , drop = FALSE]
+            if (nrow(r1) >= 1) {
+              est1 <- if (!is.na(trend_name)) safe_num(r1[[trend_name]]) else NA_real_
+              lo1  <- if (!is.na(lo_name)) safe_num(r1[[lo_name]]) else NA_real_
+              up1  <- if (!is.na(up_name)) safe_num(r1[[up_name]]) else NA_real_
+              p1v  <- safe_num(r1$p.value)
+              out$`estimate (stage_early = 1)` <- ifelse(is.na(est1), NA_real_, exp(est1))
+              out$`p-value (stage_early = 1)` <- fmt_p_str(p1v)
+              out$`95%CI (stage_early = 1)` <- fmt_ci_str(ifelse(is.na(lo1), NA_real_, exp(lo1)), ifelse(is.na(up1), NA_real_, exp(up1)))
+            }
+          }
+        }
+      }
+    }
+    out
+  }
+
+  stagewise_tbl <- tidyr::expand_grid(outcomes = col_y, covariates = covars) |>
+    dplyr::mutate(results = purrr::map(covariates, ~ compute_stagewise(df, outcome_col = col_y, stage_col = col_stage, covar_col = .x))) |>
+    dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+    tidyr::unnest(results)
+
+  if (nrow(stagewise_tbl) > 0) {
+    # Round estimates to 3 decimals for display
+    stagewise_disp <- stagewise_tbl |>
+      dplyr::mutate(
+        `estimate (stage_early = 0)` = ifelse(is.na(`estimate (stage_early = 0)`), NA_character_, sprintf("%.3f", as.numeric(`estimate (stage_early = 0)`))),
+        `estimate (stage_early = 1)` = ifelse(is.na(`estimate (stage_early = 1)`), NA_character_, sprintf("%.3f", as.numeric(`estimate (stage_early = 1)`)))
+      )
+    knitr::kable(stagewise_disp, align = "l",
+                 col.names = c(
+                   "outcomes","covariates",
+                   "estimate (stage_early = 0)","p-value (stage_early = 0)","95%CI (stage_early = 0)",
+                   "estimate (stage_early = 1)","p-value (stage_early = 1)","95%CI (stage_early = 1)"
+                 )) %>%
+      kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive")) %>%
+      kableExtra::footnote(
+        general = "This table evaluates the association of each covariate with the outcome within subgroups defined by stage_early (0 and 1) using a model with the stage × covariate interaction; estimates are subgroup-specific.",
+        threeparttable = TRUE
+      )
+  } else {
+    cat("No stage-wise covariate effects available.\n")
+  }
+}
+```
+
+#### Plots - logistic  {.tabset  .unnumbered}
+
+```{r adjusted_plots_helpers, include=FALSE}
+col_stage <- resolve_or_identity(df, "stage_early")
+col_y     <- resolve_or_identity(df, "response_achieved")
+
+plot_scatter_logit_adj <- function(df, covar) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(col_y), stage = dplyr::all_of(col_stage), x = dplyr::all_of(covar)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), !is.na(x)) |>
+    dplyr::mutate(y = as.numeric(y), stage = as.factor(stage))
+  if (nrow(d) < 5) return(NULL)
+  # Match Main models → Plots - main → Linear palette and theme
+  pal <- scales::hue_pal()(length(levels(d$stage))); names(pal) <- levels(d$stage)
+  ggplot2::ggplot(d, ggplot2::aes(x = x, y = y, color = stage)) +
+    ggplot2::geom_jitter(height = 0.05, width = 0, alpha = 0.6, size = 1.7) +
+    ggplot2::geom_smooth(method = "glm", method.args = list(family = stats::binomial()), se = FALSE) +
+    ggplot2::scale_color_manual(values = pal) +
+    ggplot2::labs(x = covar, y = "response_achieved (0/1)") +
+    ggplot2::theme_minimal(base_size = 12)
+}
+
+plot_stacked_by_stage <- function(df, covar) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(col_y), stage = dplyr::all_of(col_stage), x = dplyr::all_of(covar)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), !is.na(x)) |>
+    dplyr::mutate(stage = as.factor(stage), x = as.factor(x), y = as.numeric(as.character(y)))
+  if (nrow(d) < 1) return(NULL)
+  # For each covariate level, compute response rate per stage and stack
+  agg <- d |>
+    dplyr::group_by(x, stage) |>
+    dplyr::summarise(n = dplyr::n(), resp = sum(y == 1, na.rm = TRUE), .groups = "drop") |>
+    dplyr::group_by(x) |>
+    dplyr::mutate(prop = resp / sum(n)) |>
+    dplyr::ungroup()
+  pal <- scales::hue_pal()(length(levels(d$stage))); names(pal) <- levels(d$stage)
+  ggplot2::ggplot(agg, ggplot2::aes(x = x, y = prop, fill = stage)) +
+    ggplot2::geom_col(position = "stack", color = "white") +
+    ggplot2::scale_y_continuous(labels = scales::percent_format()) +
+    ggplot2::scale_fill_manual(values = pal, name = "stage_early") +
+    ggplot2::labs(x = covar, y = "response_achieved (proportion)") +
+    ggplot2::theme_minimal(base_size = 12)
+}
+```
+
+##### age  {.unnumbered}  
+
+```{r adjusted_plots_age, message=FALSE, warning=FALSE}
+p_age_adj <- try(plot_scatter_logit_adj(df, covar = resolve_or_identity(df, "age")), silent = TRUE)
+if (!inherits(p_age_adj, "try-error") && !is.null(p_age_adj)) print(p_age_adj) else cat("No data for age.\n")
+```
+
+##### bmi  {.unnumbered}  
+
+```{r adjusted_plots_bmi, message=FALSE, warning=FALSE}
+p_bmi_adj <- try(plot_scatter_logit_adj(df, covar = resolve_or_identity(df, "bmi")), silent = TRUE)
+if (!inherits(p_bmi_adj, "try-error") && !is.null(p_bmi_adj)) print(p_bmi_adj) else cat("No data for bmi.\n")
+```
+
+##### sex  {.unnumbered}  
+
+```{r adjusted_plots_sex, message=FALSE, warning=FALSE}
+p_sex_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "sex")), silent = TRUE)
+if (!inherits(p_sex_adj, "try-error") && !is.null(p_sex_adj)) print(p_sex_adj) else cat("No data for sex.\n")
+```
+
+##### ps_ecog  {.unnumbered}  
+
+```{r adjusted_plots_ps, message=FALSE, warning=FALSE}
+p_ps_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "ps_ecog")), silent = TRUE)
+if (!inherits(p_ps_adj, "try-error") && !is.null(p_ps_adj)) print(p_ps_adj) else cat("No data for ps_ecog.\n")
+```
+
+##### first_syst_th  {.unnumbered}  
+
+```{r adjusted_plots_first, message=FALSE, warning=FALSE}
+p_first_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "first_syst_th")), silent = TRUE)
+if (!inherits(p_first_adj, "try-error") && !is.null(p_first_adj)) print(p_first_adj) else cat("No data for first_syst_th.\n")
+```
+
+##### monotherapy  {.unnumbered}  
+
+```{r adjusted_plots_mono, message=FALSE, warning=FALSE}
+p_mono_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "monotherapy")), silent = TRUE)
+if (!inherits(p_mono_adj, "try-error") && !is.null(p_mono_adj)) print(p_mono_adj) else cat("No data for monotherapy.\n")
+```
+
+##### ae_grade_3_4  {.unnumbered}  
+
+```{r adjusted_plots_ae, message=FALSE, warning=FALSE}
+p_ae_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "ae_grade_3_4")), silent = TRUE)
+if (!inherits(p_ae_adj, "try-error") && !is.null(p_ae_adj)) print(p_ae_adj) else cat("No data for ae_grade_3_4.\n")
+```
+
+### Linear results
+
+<u>**The model equation (adjusted):**</u>
+
+$$
+\text{Time to response} = \beta_0 + \beta_1\,\mathrm{\text{Stage Early}} + \beta_2\,\text{Covariate} + \varepsilon, \quad \varepsilon \sim \mathcal{N}(0,\sigma^2)
+$$
+
+
+Where: beta_0 is the intercept (expected outcome when stage_early = 0 and the covariate is at its reference/0); beta_1 is the adjusted mean difference for stage_early (1 vs 0) holding the covariate fixed; beta_2 is the covariate effect (for factors: contrast versus the reference level; for numeric covariates: effect per one-unit increase); epsilon is a random error with mean 0 and variance sigma^2.
+
+```{r adjusted_linear_results, message=FALSE, warning=FALSE}
+# Adjusted linear models: response_time_to ~ stage_early + covariate (y > 0)
+col_stage <- resolve_or_identity(df, "stage_early")
+col_lin   <- resolve_or_identity(df, "response_time_to")
+covars_lin <- c("age","sex","bmi","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4")
+covars_lin <- covars_lin[covars_lin %in% names(df)]
+
+fit_adj_linear <- function(df, outcome_col, stage_col, covar_col) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(outcome_col), stage = dplyr::all_of(stage_col), x = dplyr::all_of(covar_col)) |>
+    dplyr::mutate(stage = as.factor(stage)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), is.finite(y), y > 0)
+  if (nrow(d) == 0 || length(unique(d$stage)) < 2) return(NULL)
+  # Treat numeric 0/1 predictors as factors for clear contrasts
+  if (is.numeric(d$x)) {
+    ux <- unique(d$x[!is.na(d$x)])
+    if (length(ux) > 0 && all(ux %in% c(0,1))) d$x <- factor(as.integer(d$x))
+  }
+  d <- d |> dplyr::mutate(x = coerce_predictor(x))
+  m <- tryCatch(stats::lm(y ~ stage + x, data = d), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE)
+  st <- tt |>
+    dplyr::filter(stringr::str_detect(.data$term, "^stage")) |>
+    dplyr::slice(1)
+  if (is.factor(d$x)) {
+    lab <- pick_contrast_level(d$x)
+    cv <- if (is.null(lab)) tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+          else tt |> dplyr::filter(.data$term == paste0("x", lab)) |> dplyr::slice(1)
+    if (nrow(cv) == 0) cv <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+  } else {
+    cv <- tt |> dplyr::filter(.data$term == "x") |> dplyr::slice(1)
+  }
+  if (nrow(st) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `estimate (stage_early)` = st$estimate,
+    `p-value (stage_early)` = st$p.value,
+    `95%CI (stage_early)` = sprintf("[%.2f, %.2f]", st$conf.low, st$conf.high),
+    `estimate (covariate)` = cv$estimate,
+    `p-value (covariate)` = cv$p.value,
+    `95%CI (covariate)` = sprintf("[%.2f, %.2f]", cv$conf.low, cv$conf.high)
+  )
+}
+
+adj_lin <- tidyr::expand_grid(Outcomes = col_lin, Covariate = covars_lin) |>
+  dplyr::mutate(results = purrr::map(Covariate, ~ fit_adj_linear(df, outcome_col = col_lin, stage_col = col_stage, covar_col = .x))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results)
+
+if (nrow(adj_lin) > 0) {
+  fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+  out_tbl <- adj_lin |>
+    dplyr::mutate(
+      `estimate (stage_early)` = sprintf("%.3f", as.numeric(`estimate (stage_early)`)),
+      `estimate (covariate)`   = sprintf("%.3f", as.numeric(`estimate (covariate)`)),
+      `p-value (stage_early)`  = fmt_p(`p-value (stage_early)`),
+      `p-value (covariate)`    = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = "l",
+               col.names = c("Outcomes","Covariate","estimate (stage_early)","p-value (stage_early)","95%CI (stage_early)","estimate (covariate)","p-value (covariate)","95%CI (covariate)")) %>%
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+} else {
+  cat("No adjusted linear results available.\n")
+}
+```
+
+```{r adjusted_linear_stagewise, message=FALSE, warning=FALSE}
+# Stage-specific covariate effects (linear): factor x via emmeans(~ x | stage) contrasts; numeric x via emtrends(~ stage, var = "x")
+if (!requireNamespace("emmeans", quietly = TRUE)) {
+  cat("emmeans package not available; stage-wise linear effects skipped.\n")
+} else {
+  fmt_p_str <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+  fmt_ci_str <- function(l, u) ifelse(is.na(l) | is.na(u), NA_character_, sprintf("[%.2f, %.2f]", l, u))
+
+  compute_stagewise_lin <- function(df, outcome_col, stage_col, covar_col) {
+    d <- df |>
+      dplyr::select(y = dplyr::all_of(outcome_col), stage = dplyr::all_of(stage_col), x = dplyr::all_of(covar_col)) |>
+      dplyr::mutate(stage = as.factor(stage)) |>
+      dplyr::filter(!is.na(y), !is.na(stage), is.finite(y), y > 0)
+    if (nrow(d) == 0 || length(unique(d$stage)) < 2) return(NULL)
+    if (is.numeric(d$x)) {
+      ux <- unique(d$x[!is.na(d$x)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$x <- factor(as.integer(d$x))
+    }
+    d <- d |> dplyr::mutate(x = coerce_predictor(x))
+    m_int <- tryCatch(stats::lm(y ~ stage * x, data = d), error = function(e) NULL)
+    if (is.null(m_int)) return(NULL)
+    out <- tibble::tibble(
+      `estimate (stage_early = 0)` = NA_real_,
+      `p-value (stage_early = 0)` = NA_character_,
+      `95%CI (stage_early = 0)` = NA_character_,
+      `estimate (stage_early = 1)` = NA_real_,
+      `p-value (stage_early = 1)` = NA_character_,
+      `95%CI (stage_early = 1)` = NA_character_
+    )
+
+    if (is.factor(d$x)) {
+      em <- try(emmeans::emmeans(m_int, specs = ~ x | stage), silent = TRUE)
+      if (!inherits(em, "try-error")) {
+        cn <- try(emmeans::contrast(em, method = "trt.vs.ctrl", ref = 1), silent = TRUE)
+        sm <- try(as.data.frame(summary(cn, infer = TRUE)), silent = TRUE)
+        if (!inherits(sm, "try-error") && nrow(sm) > 0) {
+          st_vals <- if ("stage" %in% names(sm)) unique(as.character(sm$stage)) else levels(d$stage)
+          s0 <- if (length(st_vals) >= 1) (if ("0" %in% st_vals) "0" else st_vals[1]) else NA_character_
+          s1 <- if (length(st_vals) >= 2) (if ("1" %in% st_vals) "1" else st_vals[2]) else NA_character_
+          if (!is.na(s0)) {
+            r0 <- sm[as.character(sm$stage) == s0, , drop = FALSE]
+            if (nrow(r0) >= 1) {
+              out$`estimate (stage_early = 0)` <- as.numeric(r0$estimate[1])
+              out$`p-value (stage_early = 0)` <- fmt_p_str(as.numeric(r0$p.value[1]))
+              out$`95%CI (stage_early = 0)` <- fmt_ci_str(as.numeric(r0$lower.CL[1]), as.numeric(r0$upper.CL[1]))
+            }
+          }
+          if (!is.na(s1)) {
+            r1 <- sm[as.character(sm$stage) == s1, , drop = FALSE]
+            if (nrow(r1) >= 1) {
+              out$`estimate (stage_early = 1)` <- as.numeric(r1$estimate[1])
+              out$`p-value (stage_early = 1)` <- fmt_p_str(as.numeric(r1$p.value[1]))
+              out$`95%CI (stage_early = 1)` <- fmt_ci_str(as.numeric(r1$lower.CL[1]), as.numeric(r1$upper.CL[1]))
+            }
+          }
+        }
+      }
+    } else {
+      tr <- try(emmeans::emtrends(m_int, specs = ~ stage, var = "x"), silent = TRUE)
+      if (!inherits(tr, "try-error")) {
+        smt <- try(as.data.frame(summary(tr, infer = TRUE)), silent = TRUE)
+        if (!inherits(smt, "try-error") && nrow(smt) > 0) {
+          trend_name <- if ("emtrends" %in% names(smt)) "emtrends" else if ("x.trend" %in% names(smt)) "x.trend" else if ("trend" %in% names(smt)) "trend" else NA_character_
+          st_vals <- if ("stage" %in% names(smt)) unique(as.character(smt$stage)) else levels(d$stage)
+          s0 <- if (length(st_vals) >= 1) (if ("0" %in% st_vals) "0" else st_vals[1]) else NA_character_
+          s1 <- if (length(st_vals) >= 2) (if ("1" %in% st_vals) "1" else st_vals[2]) else NA_character_
+          if (!is.na(s0)) {
+            r0 <- smt[as.character(smt$stage) == s0, , drop = FALSE]
+            if (nrow(r0) >= 1) {
+              out$`estimate (stage_early = 0)` <- as.numeric(r0[[trend_name]][1])
+              out$`p-value (stage_early = 0)` <- fmt_p_str(as.numeric(r0$p.value[1]))
+              out$`95%CI (stage_early = 0)` <- fmt_ci_str(as.numeric(r0$lower.CL[1]), as.numeric(r0$upper.CL[1]))
+            }
+          }
+          if (!is.na(s1)) {
+            r1 <- smt[as.character(smt$stage) == s1, , drop = FALSE]
+            if (nrow(r1) >= 1) {
+              out$`estimate (stage_early = 1)` <- as.numeric(r1[[trend_name]][1])
+              out$`p-value (stage_early = 1)` <- fmt_p_str(as.numeric(r1$p.value[1]))
+              out$`95%CI (stage_early = 1)` <- fmt_ci_str(as.numeric(r1$lower.CL[1]), as.numeric(r1$upper.CL[1]))
+            }
+          }
+        }
+      }
+    }
+    out
+  }
+
+  stagewise_lin <- tidyr::expand_grid(outcomes = col_lin, covariates = covars_lin) |>
+    dplyr::mutate(results = purrr::map(covariates, ~ compute_stagewise_lin(df, outcome_col = col_lin, stage_col = col_stage, covar_col = .x))) |>
+    dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+    tidyr::unnest(results)
+
+  if (nrow(stagewise_lin) > 0) {
+    stagewise_lin_disp <- stagewise_lin |>
+      dplyr::mutate(
+        `estimate (stage_early = 0)` = ifelse(is.na(`estimate (stage_early = 0)`), NA_character_, sprintf("%.3f", as.numeric(`estimate (stage_early = 0)`))),
+        `estimate (stage_early = 1)` = ifelse(is.na(`estimate (stage_early = 1)`), NA_character_, sprintf("%.3f", as.numeric(`estimate (stage_early = 1)`)))
+      )
+    knitr::kable(stagewise_lin_disp, align = "l",
+                 col.names = c(
+                   "outcomes","covariates",
+                   "estimate (stage_early = 0)","p-value (stage_early = 0)","95%CI (stage_early = 0)",
+                   "estimate (stage_early = 1)","p-value (stage_early = 1)","95%CI (stage_early = 1)"
+                 )) %>%
+      kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c("striped","hover","condensed","responsive"))
+  } else {
+    cat("No stage-wise linear effects available.\n")
+  }
+}
+```
+
+#### Plots - linear  {.tabset  .unnumbered}
+
+
+```{r lin_plots_helpers_appendix, message=FALSE, warning=FALSE}
+# Helpers for appended linear plots (match Logistic plots palette/theme)
+# Columns resolved via resolve_or_identity to respect alias_map
+col_stage <- resolve_or_identity(df, 'stage_early')
+col_y     <- resolve_or_identity(df, 'response_time_to')
+
+lin_end_scatter_by_stage <- function(df, covar) {
+  # Resolve columns locally
+  y_col     <- resolve_or_identity(df, 'response_time_to')
+  stage_col <- resolve_or_identity(df, 'stage_early')
+  x_col     <- resolve_or_identity(df, covar)
+  if (!all(c(y_col, stage_col, x_col) %in% names(df))) return(NULL)
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(y_col), stage = dplyr::all_of(stage_col), x = dplyr::all_of(x_col)) |>
+    dplyr::filter(!is.na(y), !is.na(stage), !is.na(x), is.finite(y), y > 0) |>
+    dplyr::mutate(stage = as.factor(stage))
+  if (nrow(d) < 2) return(NULL)
+  pal <- scales::hue_pal()(length(levels(d$stage))); names(pal) <- levels(d$stage)
+  ggplot2::ggplot(d, ggplot2::aes(x = x, y = y, color = stage)) +
+    ggplot2::geom_point(alpha = 0.6, size = 1.7) +
+    ggplot2::geom_smooth(method = 'lm', se = FALSE) +
+    ggplot2::scale_color_manual(values = pal, name = 'stage_early') +
+    ggplot2::labs(x = x_col, y = y_col, title = sprintf('%s vs %s by stage', y_col, x_col)) +
+    ggplot2::theme_minimal(base_size = 12)
+}
+
+lin_end_jitter_boot_by_stage <- function(df, covar) {
+  if (!all(c('response_time_to','stage_early', covar) %in% names(df))) return(NULL)
+  
+  d <- df |>
+    dplyr::transmute(
+      y = .data[["response_time_to"]],
+      stage = as.factor(.data[["stage_early"]]),
+      x = forcats::fct_explicit_na(as.factor(.data[[covar]]), na_level = 'Missing')
+    ) |>
+    na.omit()
+  
+  pal <- scales::hue_pal()(length(levels(d$stage)))
+  names(pal) <- levels(d$stage)
+  
+  ci_df <- d |>
+    dplyr::group_by(x, stage) |>
+    dplyr::summarise({
+      v <- y[is.finite(y)]
+      if (length(v) == 0) {
+        tibble::tibble(med = NA_real_, l = NA_real_, u = NA_real_)
+      } else if (length(v) == 1) {
+        tibble::tibble(med = stats::median(v), l = NA_real_, u = NA_real_)
+      } else {
+        meds <- replicate(5000L, stats::median(sample(v, replace = TRUE)))
+        tibble::tibble(
+          med = stats::median(v),
+          l = stats::quantile(meds, 0.025, names = FALSE),
+          u = stats::quantile(meds, 0.975, names = FALSE)
+        )
+      }
+    }, .groups = "drop")
+  
+  ggplot2::ggplot(d, ggplot2::aes(x = x, y = y, color = stage)) +
+    ggplot2::geom_point(
+      alpha = 0.6, size = 1.7, stroke = 0,
+      position = ggplot2::position_jitterdodge(jitter.width = 0.15, dodge.width = 0.6)
+    ) +
+    ggplot2::geom_errorbar(
+      data = ci_df,
+      ggplot2::aes(x = x, ymin = l, ymax = u, color = stage),
+      width = 0.15,
+      position = ggplot2::position_dodge(width = 0.6),
+      inherit.aes = FALSE, na.rm = TRUE
+    ) +
+    ggplot2::geom_point(
+      data = ci_df,
+      ggplot2::aes(x = x, y = med, color = stage, group = stage),
+      color = 'black', size = 2.5,
+      position = ggplot2::position_dodge(width = 0.6),
+      inherit.aes = TRUE, na.rm = TRUE
+    ) +
+    ggplot2::scale_color_manual(values = pal, name = "Stage") +
+    ggplot2::labs(
+      x = covar, y = "response_time_to",
+      title = sprintf("%s by %s (median with 95%% CI)", "response_time_to", covar)
+    ) +
+    ggplot2::theme_minimal(base_size = 12)
+}
+
+```
+
+##### age  {.unnumbered}
+```{r lin_plots_age_appendix, message=FALSE, warning=FALSE}
+p_age_lin_end <- try(lin_end_scatter_by_stage(df, covar = resolve_or_identity(df, 'age')), silent = TRUE)
+if (!inherits(p_age_lin_end, 'try-error') && !is.null(p_age_lin_end)) print(p_age_lin_end) else cat('No data for age.\n')
+```
+
+##### bmi  {.unnumbered}
+```{r lin_plots_bmi_appendix, message=FALSE, warning=FALSE}
+p_bmi_lin_end <- try(lin_end_scatter_by_stage(df, covar = resolve_or_identity(df, 'bmi')), silent = TRUE)
+if (!inherits(p_bmi_lin_end, 'try-error') && !is.null(p_bmi_lin_end)) print(p_bmi_lin_end) else cat('No data for bmi.\n')
+```
+
+##### sex  {.unnumbered}
+```{r lin_plots_sex_appendix, message=FALSE, warning=FALSE}
+p_sex_lin_end <- try(lin_end_jitter_boot_by_stage(df, covar = resolve_or_identity(df, 'sex')), silent = TRUE)
+if (!inherits(p_sex_lin_end, 'try-error') && !is.null(p_sex_lin_end)) print(p_sex_lin_end) else cat('No data for sex.\n')
+```
+
+##### ps_ecog  {.unnumbered}
+```{r lin_plots_ps_appendix, message=FALSE, warning=FALSE}
+p_ps_lin_end <- try(lin_end_jitter_boot_by_stage(df, covar = resolve_or_identity(df, 'ps_ecog')), silent = TRUE)
+if (!inherits(p_ps_lin_end, 'try-error') && !is.null(p_ps_lin_end)) print(p_ps_lin_end) else cat('No data for ps_ecog.\n')
+```
+
+##### first_syst_th  {.unnumbered}
+```{r lin_plots_first_appendix, message=FALSE, warning=FALSE}
+p_first_lin_end <- try(lin_end_jitter_boot_by_stage(df, covar = resolve_or_identity(df, 'first_syst_th')), silent = TRUE)
+if (!inherits(p_first_lin_end, 'try-error') && !is.null(p_first_lin_end)) print(p_first_lin_end) else cat('No data for first_syst_th.\n')
+```
+
+##### monotherapy  {.unnumbered}
+```{r lin_plots_mono_appendix, message=FALSE, warning=FALSE}
+p_mono_lin_end <- try(lin_end_jitter_boot_by_stage(df, covar = resolve_or_identity(df, 'monotherapy')), silent = TRUE)
+if (!inherits(p_mono_lin_end, 'try-error') && !is.null(p_mono_lin_end)) print(p_mono_lin_end) else cat('No data for monotherapy.\n')
+```
+
+##### ae_grade_3_4  {.unnumbered}
+```{r lin_plots_ae_appendix, message=FALSE, warning=FALSE}
+p_ae_lin_end <- try(lin_end_jitter_boot_by_stage(df, covar = resolve_or_identity(df, 'ae_grade_3_4')), silent = TRUE)
+if (!inherits(p_ae_lin_end, 'try-error') && !is.null(p_ae_lin_end)) print(p_ae_lin_end) else cat('No data for ae_grade_3_4.\n')
+```
+
+### Survival results
+
+
+<u>**The model equation (adjusted):**</u>
+
+$$
+h(t \mid \text{Stage Early}, \text{Covariate})
+= h_0(t)\,\exp\!\big(\beta_1\,\text{Stage Early} + \beta_2\,\text{Covariate}\big)
+$$
+
+Where: h(t) is the hazard at time t; h0(t) is the baseline hazard; beta_1 is the adjusted log‑hazard ratio for stage_early (1 vs 0) holding the covariate fixed; beta_2 is the covariate effect (for factors: contrast vs the reference level; for numeric covariates: effect per one‑unit increase). Effects are commonly reported as HR = exp(beta).
+
+```{r surv_appendix_results, message=FALSE, warning=FALSE}
+# Adjusted Cox PH for three endpoints with single-covariate adjustments
+# Columns resolved directly from df; no prior filtering
+col_stage <- 'stage_early'
+endpoints <- list(
+  list(label = 'time_to_next_treatment', time = 'ttnt',                 event = 'ttnt_achieved'),
+  list(label = 'treatment_duration',      time = 'treatment_duration',  event = 'discontinuation_reason'),
+  list(label = 'response_duration',       time = 'response_duration',   event = 'progression')
+)
+
+covars_surv <- c('age','sex','bmi','ps_ecog','first_syst_th','monotherapy','ae_grade_3_4')
+covars_surv <- covars_surv[covars_surv %in% names(df)]
+
+fit_adj_cox_app <- function(df, spec, stage_col, covar_col) {
+  if (!all(c(spec$time, spec$event, stage_col, covar_col) %in% names(df))) return(NULL)
+  d <- df |>
+    dplyr::transmute(
+      time  = suppressWarnings(readr::parse_number(as.character(.data[[spec$time]]))),
+      event = .data[[spec$event]],
+      stage = as.factor(.data[[stage_col]]),
+      x     = .data[[covar_col]]
+    ) |>
+    dplyr::mutate(
+      event = {
+        v <- event
+        if (is.factor(v)) v <- as.character(v)
+        v <- suppressWarnings(as.numeric(v))
+        ifelse(is.na(v), NA_real_, ifelse(v == 0, 0, 1))
+      },
+      x = if (is.numeric(x) && all(na.omit(unique(x)) %in% c(0,1))) factor(as.integer(x)) else x,
+      x = if (is.character(x)) factor(x) else x
+    ) |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(stage), !is.na(x))
+  if (nrow(d) < 3 || length(unique(d$stage)) < 2) return(NULL)
+  m <- tryCatch(survival::coxph(survival::Surv(time, event) ~ stage + x, data = d, x = TRUE), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE, exponentiate = TRUE)
+  st <- tt |>
+    dplyr::filter(stringr::str_detect(.data$term, '^stage')) |>
+    dplyr::slice(1)
+  cv <- if (is.factor(d$x)) {
+    lab <- levels(d$x)[2]
+    row <- tt |> dplyr::filter(stringr::str_starts(.data$term, 'x')) |> dplyr::slice(1)
+    row
+  } else {
+    tt |> dplyr::filter(.data$term == 'x') |> dplyr::slice(1)
+  }
+  if (nrow(st) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `HR (stage_early)` = as.numeric(st$estimate),
+    `p-value (stage_early)` = ifelse(is.na(st$p.value), NA_character_, ifelse(st$p.value < 0.001, '<0.001', sprintf('%.3f', st$p.value))),
+    `95%CI (stage_early)` = sprintf('[%.2f, %.2f]', as.numeric(st$conf.low), as.numeric(st$conf.high)),
+    `HR (covariate)` = as.numeric(cv$estimate),
+    `p-value (covariate)` = ifelse(is.na(cv$p.value), NA_character_, ifelse(cv$p.value < 0.001, '<0.001', sprintf('%.3f', cv$p.value))),
+    `95%CI (covariate)` = sprintf('[%.2f, %.2f]', as.numeric(cv$conf.low), as.numeric(cv$conf.high))
+  )
+}
+
+adj_surv_app <- tidyr::expand_grid(spec_id = seq_along(endpoints), Covariate = covars_surv) |>
+  dplyr::mutate(results = purrr::map2(spec_id, Covariate, ~ fit_adj_cox_app(df, endpoints[[.x]], stage_col = col_stage, covar_col = .y))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::mutate(Outcomes = vapply(spec_id, function(i) endpoints[[i]]$label, character(1))) |>
+  dplyr::select(Outcomes, Covariate, dplyr::everything(), -spec_id)
+
+if (nrow(adj_surv_app) > 0) {
+  knitr::kable(adj_surv_app, align = 'l',
+               col.names = c('Outcomes','Covariate','HR (stage_early)','p-value (stage_early)','95%CI (stage_early)',
+                             'HR (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted survival results available.\n')
+}
+```
+
+```{r surv_appendix_stagewise, message=FALSE, warning=FALSE}
+# Stage-wise Cox PH: within each stage, Surv ~ covariate for each endpoint
+col_stage <- 'stage_early'
+
+compute_stagewise_cox_app <- function(df, spec, stage_col, covar_col) {
+  if (!all(c(spec$time, spec$event, stage_col, covar_col) %in% names(df))) return(NULL)
+  d <- df |>
+    dplyr::transmute(
+      time  = suppressWarnings(readr::parse_number(as.character(.data[[spec$time]]))),
+      event = .data[[spec$event]],
+      stage = as.factor(.data[[stage_col]]),
+      x     = .data[[covar_col]]
+    ) |>
+    dplyr::mutate(
+      event = {
+        v <- event
+        if (is.factor(v)) v <- as.character(v)
+        v <- suppressWarnings(as.numeric(v))
+        ifelse(is.na(v), NA_real_, ifelse(v == 0, 0, 1))
+      },
+      x = if (is.numeric(x) && all(na.omit(unique(x)) %in% c(0,1))) factor(as.integer(x)) else x,
+      x = if (is.character(x)) factor(x) else x
+    ) |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(stage), !is.na(x))
+  if (nrow(d) < 3 || length(unique(d$stage)) < 1) return(NULL)
+  out <- tibble::tibble(
+    `HR (stage_early = 0)` = NA_real_, `p-value (stage_early = 0)` = NA_character_, `95%CI (stage_early = 0)` = NA_character_,
+    `HR (stage_early = 1)` = NA_real_, `p-value (stage_early = 1)` = NA_character_, `95%CI (stage_early = 1)` = NA_character_
+  )
+  levels_stage <- levels(d$stage)
+  s0 <- if ('0' %in% levels_stage) '0' else levels_stage[1]
+  s1 <- if (length(levels_stage) >= 2) (if ('1' %in% levels_stage) '1' else levels_stage[2]) else NA_character_
+  if (!is.na(s0)) {
+    d0 <- d[as.character(d$stage) == s0, , drop = FALSE]
+    if (nrow(d0) >= 3) {
+      m0 <- tryCatch(survival::coxph(survival::Surv(time, event) ~ x, data = d0), error = function(e) NULL)
+      if (!is.null(m0)) {
+        t0 <- broom::tidy(m0, conf.int = TRUE, exponentiate = TRUE)
+        r0 <- if (is.factor(d0$x)) t0 |> dplyr::filter(stringr::str_starts(.data$term, 'x')) |> dplyr::slice(1) else t0 |> dplyr::filter(.data$term == 'x') |> dplyr::slice(1)
+        if (nrow(r0) == 1) {
+          out$`HR (stage_early = 0)` <- as.numeric(r0$estimate)
+          out$`p-value (stage_early = 0)` <- ifelse(is.na(r0$p.value), NA_character_, ifelse(r0$p.value < 0.001, '<0.001', sprintf('%.3f', r0$p.value)))
+          out$`95%CI (stage_early = 0)` <- sprintf('[%.2f, %.2f]', as.numeric(r0$conf.low), as.numeric(r0$conf.high))
+        }
+      }
+    }
+  }
+  if (!is.na(s1)) {
+    d1 <- d[as.character(d$stage) == s1, , drop = FALSE]
+    if (nrow(d1) >= 3) {
+      m1 <- tryCatch(survival::coxph(survival::Surv(time, event) ~ x, data = d1), error = function(e) NULL)
+      if (!is.null(m1)) {
+        t1 <- broom::tidy(m1, conf.int = TRUE, exponentiate = TRUE)
+        r1 <- if (is.factor(d1$x)) t1 |> dplyr::filter(stringr::str_starts(.data$term, 'x')) |> dplyr::slice(1) else t1 |> dplyr::filter(.data$term == 'x') |> dplyr::slice(1)
+        if (nrow(r1) == 1) {
+          out$`HR (stage_early = 1)` <- as.numeric(r1$estimate)
+          out$`p-value (stage_early = 1)` <- ifelse(is.na(r1$p.value), NA_character_, ifelse(r1$p.value < 0.001, '<0.001', sprintf('%.3f', r1$p.value)))
+          out$`95%CI (stage_early = 1)` <- sprintf('[%.2f, %.2f]', as.numeric(r1$conf.low), as.numeric(r1$conf.high))
+        }
+      }
+    }
+  }
+  out
+}
+
+stagewise_surv_app <- tidyr::expand_grid(spec_id = seq_along(endpoints), Covariate = covars_surv) |>
+  dplyr::mutate(results = purrr::map2(spec_id, Covariate, ~ compute_stagewise_cox_app(df, endpoints[[.x]], stage_col = col_stage, covar_col = .y))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::mutate(outcomes = vapply(spec_id, function(i) endpoints[[i]]$label, character(1))) |>
+  dplyr::select(outcomes, covariates = Covariate, dplyr::everything(), -spec_id)
+
+if (nrow(stagewise_surv_app) > 0) {
+  knitr::kable(stagewise_surv_app, align = 'l',
+               col.names = c('outcomes','covariates',
+                             'HR (stage_early = 0)','p-value (stage_early = 0)','95%CI (stage_early = 0)',
+                             'HR (stage_early = 1)','p-value (stage_early = 1)','95%CI (stage_early = 1)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No stage-wise survival effects available.\n')
+}
+```
+
+
+## Adjusted models - bmi
+
+### Logistic results
+
+```{r bmi_adjusted_logistic_results, message=FALSE, warning=FALSE}
+col_pred <- resolve_or_identity(df, "bmi")
+col_y    <- resolve_or_identity(df, "response_achieved")
+
+covars_bmi <- c("age","sex","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","stage_early")
+covars_bmi <- unique(covars_bmi)
+covars_bmi <- covars_bmi[covars_bmi %in% names(df) & covars_bmi != col_pred]
+
+fit_adj_logistic_bmi <- function(df, outcome_col, pred_col, covar_col) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(outcome_col), pred = dplyr::all_of(pred_col), x = dplyr::all_of(covar_col)) |>
+    dplyr::filter(!is.na(y), !is.na(pred), !is.na(x))
+  if (nrow(d) == 0) return(NULL)
+  if (is.numeric(d$pred)) { ux <- unique(d$pred[!is.na(d$pred)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$pred <- factor(as.integer(d$pred)) }
+  if (is.numeric(d$x))   { ux <- unique(d$x[!is.na(d$x)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$x   <- factor(as.integer(d$x)) }
+  d <- d |> dplyr::mutate(pred = coerce_predictor(pred), x = coerce_predictor(x))
+  m <- tryCatch(stats::glm(y ~ pred + x, data = d, family = stats::binomial()), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE)
+  pr <- tt |> dplyr::filter(stringr::str_detect(.data$term, "^pred")) |> dplyr::slice(1)
+  if (is.factor(d$x)) {
+    lab <- pick_contrast_level(d$x)
+    cv <- if (is.null(lab)) tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+          else tt |> dplyr::filter(.data$term == paste0("x", lab)) |> dplyr::slice(1)
+    if (nrow(cv) == 0) cv <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+  } else {
+    cv <- tt |> dplyr::filter(.data$term == "x") |> dplyr::slice(1)
+  }
+  if (nrow(pr) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `Outcomes` = outcome_col,
+    `Covariate` = covar_col,
+    `estimate (bmi)` = pr$estimate,
+    `p-value (bmi)`  = pr$p.value,
+    `95%CI (bmi)`    = sprintf("[%.2f, %.2f]", pr$conf.low, pr$conf.high),
+    `estimate (covariate)` = cv$estimate,
+    `p-value (covariate)`  = cv$p.value,
+    `95%CI (covariate)`    = sprintf("[%.2f, %.2f]", cv$conf.low, cv$conf.high)
+  )
+}
+
+adj_bmi_log <- tibble::tibble(cov = covars_bmi) |>
+  dplyr::mutate(results = purrr::map(cov, ~ fit_adj_logistic_bmi(df, outcome_col = col_y, pred_col = col_pred, covar_col = .x))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::select(-cov)
+
+fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+if (nrow(adj_bmi_log) > 0) {
+  out_tbl <- adj_bmi_log |>
+    dplyr::mutate(
+      `p-value (bmi)`      = fmt_p(`p-value (bmi)`),
+      `p-value (covariate)` = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = 'l',
+               col.names = c('Outcomes','Covariate','estimate (bmi)','p-value (bmi)','95%CI (bmi)',
+                             'estimate (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted logistic results (bmi) available.\n')
+}
+```
+### Linear results
+
+```{r bmi_adjusted_linear_results, message=FALSE, warning=FALSE}
+col_pred <- resolve_or_identity(df, "bmi")
+col_lin  <- resolve_or_identity(df, "response_time_to")
+
+covars_bmi <- c("age","sex","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","stage_early")
+covars_bmi <- unique(covars_bmi)
+covars_bmi <- covars_bmi[covars_bmi %in% names(df) & covars_bmi != col_pred]
+
+fit_adj_linear_bmi <- function(df, outcome_col, pred_col, covar_col) {
+  d <- df |>
+    dplyr::select(y = dplyr::all_of(outcome_col), pred = dplyr::all_of(pred_col), x = dplyr::all_of(covar_col)) |>
+    dplyr::filter(!is.na(y), is.finite(y), !is.na(pred), !is.na(x), y > 0)
+  if (nrow(d) == 0) return(NULL)
+  if (is.numeric(d$pred)) { ux <- unique(d$pred[!is.na(d$pred)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$pred <- factor(as.integer(d$pred)) }
+  if (is.numeric(d$x))   { ux <- unique(d$x[!is.na(d$x)]); if (length(ux) > 0 && all(ux %in% c(0,1))) d$x   <- factor(as.integer(d$x)) }
+  d <- d |> dplyr::mutate(pred = coerce_predictor(pred), x = coerce_predictor(x))
+  m <- tryCatch(stats::lm(y ~ pred + x, data = d), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE)
+  pr <- tt |> dplyr::filter(stringr::str_detect(.data$term, "^pred")) |> dplyr::slice(1)
+  if (is.factor(d$x)) {
+    lab <- pick_contrast_level(d$x)
+    cv <- if (is.null(lab)) tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+          else tt |> dplyr::filter(.data$term == paste0("x", lab)) |> dplyr::slice(1)
+    if (nrow(cv) == 0) cv <- tt |> dplyr::filter(stringr::str_starts(.data$term, "x")) |> dplyr::slice(1)
+  } else {
+    cv <- tt |> dplyr::filter(.data$term == "x") |> dplyr::slice(1)
+  }
+  if (nrow(pr) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `Outcomes` = outcome_col,
+    `Covariate` = covar_col,
+    `estimate (bmi)` = pr$estimate,
+    `p-value (bmi)`  = pr$p.value,
+    `95%CI (bmi)`    = sprintf("[%.2f, %.2f]", pr$conf.low, pr$conf.high),
+    `estimate (covariate)` = cv$estimate,
+    `p-value (covariate)`  = cv$p.value,
+    `95%CI (covariate)`    = sprintf("[%.2f, %.2f]", cv$conf.low, cv$conf.high)
+  )
+}
+
+adj_bmi_lin <- tibble::tibble(cov = covars_bmi) |>
+  dplyr::mutate(results = purrr::map(cov, ~ fit_adj_linear_bmi(df, outcome_col = col_lin, pred_col = col_pred, covar_col = .x))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::select(-cov)
+
+fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, "<0.001", sprintf("%.3f", p)))
+if (nrow(adj_bmi_lin) > 0) {
+  out_tbl <- adj_bmi_lin |>
+    dplyr::mutate(
+      `p-value (bmi)`      = fmt_p(`p-value (bmi)`),
+      `p-value (covariate)` = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = 'l',
+               col.names = c('Outcomes','Covariate','estimate (bmi)','p-value (bmi)','95%CI (bmi)',
+                             'estimate (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted linear results (bmi) available.\n')
+}
+```
+
+
+### Survival results
+
+```{r bmi_adjusted_survival_results, message=FALSE, warning=FALSE}
+# Adjusted Cox PH: Surv ~ bmi + covariate for three endpoints
+
+col_pred <- resolve_or_identity(df, "bmi")
+
+endpoints <- list(
+  list(label = 'time_to_next_treatment', time = 'ttnt',                event = 'ttnt_achieved'),
+  list(label = 'treatment_duration',      time = 'treatment_duration', event = 'discontinuation_reason'),
+  list(label = 'response_duration',       time = 'response_duration',  event = 'progression')
+)
+
+covars_bmi <- c('age','sex','ps_ecog','first_syst_th','monotherapy','ae_grade_3_4','stage_early')
+covars_bmi <- covars_bmi[covars_bmi %in% names(df) & covars_bmi != col_pred]
+
+fit_adj_cox_bmi <- function(df, spec, pred_col, covar_col) {
+  if (!all(c(spec$time, spec$event, pred_col, covar_col) %in% names(df))) return(NULL)
+  d <- df |>
+    dplyr::transmute(
+      time  = suppressWarnings(readr::parse_number(as.character(.data[[spec$time]]))),
+      event = .data[[spec$event]],
+      pred  = .data[[pred_col]],
+      x     = .data[[covar_col]]
+    ) |>
+    dplyr::mutate(
+      event = {
+        v <- event
+        if (is.factor(v)) v <- as.character(v)
+        v <- suppressWarnings(as.numeric(v))
+        ifelse(is.na(v), NA_real_, ifelse(v == 0, 0, 1))
+      },
+      pred = if (is.numeric(pred) && all(na.omit(unique(pred)) %in% c(0,1))) factor(as.integer(pred)) else pred,
+      pred = if (is.character(pred)) factor(pred) else pred,
+      x    = if (is.numeric(x) && all(na.omit(unique(x)) %in% c(0,1))) factor(as.integer(x)) else x,
+      x    = if (is.character(x)) factor(x) else x
+    ) |>
+    dplyr::filter(!is.na(time), !is.na(event), !is.na(pred), !is.na(x))
+  if (nrow(d) < 3) return(NULL)
+  m <- tryCatch(survival::coxph(survival::Surv(time, event) ~ pred + x, data = d, x = TRUE), error = function(e) NULL)
+  if (is.null(m)) return(NULL)
+  tt <- broom::tidy(m, conf.int = TRUE, exponentiate = TRUE)
+  pr <- tt |> dplyr::filter(stringr::str_detect(.data$term, '^pred')) |> dplyr::slice(1)
+  cv <- if (is.factor(d$x)) {
+    tt |> dplyr::filter(stringr::str_starts(.data$term, 'x')) |> dplyr::slice(1)
+  } else {
+    tt |> dplyr::filter(.data$term == 'x') |> dplyr::slice(1)
+  }
+  if (nrow(pr) == 0 || nrow(cv) == 0) return(NULL)
+  tibble::tibble(
+    `Outcomes` = spec$label,
+    `Covariate` = covar_col,
+    `HR (bmi)` = as.numeric(pr$estimate),
+    `p-value (bmi)` = pr$p.value,
+    `95%CI (bmi)` = sprintf('[%.2f, %.2f]', as.numeric(pr$conf.low), as.numeric(pr$conf.high)),
+    `HR (covariate)` = as.numeric(cv$estimate),
+    `p-value (covariate)` = cv$p.value,
+    `95%CI (covariate)` = sprintf('[%.2f, %.2f]', as.numeric(cv$conf.low), as.numeric(cv$conf.high))
+  )
+}
+
+adj_bmi_surv <- tidyr::expand_grid(spec_id = seq_along(endpoints), cov = covars_bmi) |>
+  dplyr::mutate(results = purrr::map2(spec_id, cov, ~ fit_adj_cox_bmi(df, endpoints[[.x]], pred_col = col_pred, covar_col = .y))) |>
+  dplyr::filter(!purrr::map_lgl(results, is.null)) |>
+  tidyr::unnest(results) |>
+  dplyr::select(-cov, -spec_id)
+
+fmt_p <- function(p) ifelse(is.na(p), NA_character_, ifelse(p < 0.001, '<0.001', sprintf('%.3f', p)))
+
+if (nrow(adj_bmi_surv) > 0) {
+  out_tbl <- adj_bmi_surv |>
+    dplyr::mutate(
+      `p-value (bmi)`       = fmt_p(`p-value (bmi)`),
+      `p-value (covariate)` = fmt_p(`p-value (covariate)`)
+    )
+  knitr::kable(out_tbl, align = 'l',
+               col.names = c('Outcomes','Covariate','HR (bmi)','p-value (bmi)','95%CI (bmi)',
+                             'HR (covariate)','p-value (covariate)','95%CI (covariate)')) |>
+    kableExtra::kable_styling(full_width = FALSE, bootstrap_options = c('striped','hover','condensed','responsive'))
+} else {
+  cat('No adjusted survival results (bmi) available.\n')
+}
+```
+
+# Conclussion  
+
+# Session info
+
+<details>
+
+<summary>Platform</summary>
+
+```{r session_info_1}
+df_session_platform <- devtools::session_info()$platform %>% 
+  unlist(.) %>% 
+  as.data.frame(.) %>% 
+  rownames_to_column(.)
+
+colnames(df_session_platform) <- c("Setting", "Value")
+
+kable(
+  df_session_platform, 
+  booktabs = T, 
+  align = "l",
+  caption = "(ref:Reproducibility-SessionInfo-R-environment-title)", # complete caption for main document
+  caption.short = " " # "(ref:Reproducibility-SessionInfo-R-environment-caption)" # short caption for LoT
+) %>% 
+  kable_styling(full_width = F,
+                latex_options = c(
+                  "hold_position" # stop table floating
+                ),
+                bootstrap_options = c("striped", "hover", "condensed", "responsive")
+  ) 
+
+```
+
+</details>
+
+<details>
+
+<summary>Used packages</summary>
+
+```{r session_info_2, results = 'asis'}
+subset(data.frame(sessioninfo::package_info()), attached==TRUE, c(package, loadedversion, date))
+```
+
+</details>
+
+<br> <br> <br> <br> <br> <br>
+
+::: {.tocify-extend-page data-unique="tocify-extend-page" style="height: 0;"}
+:::
