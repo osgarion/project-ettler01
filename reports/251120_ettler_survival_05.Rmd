@@ -128,7 +128,9 @@ df <- d04 |>
   janitor::clean_names() |>
   dplyr::mutate(
     discontinuation_reason = dplyr::if_else(.data$discontinuation_reason == 0, 0, 1),
-    sex = dplyr::if_else(.data$sex == "M", 1, 0)
+    sex = dplyr::if_else(.data$sex == "M", 1, 0),
+    overweight = dplyr::if_else(!is.na(.data$bmi) & .data$bmi >= 25, 1, 0),
+    obese = dplyr::if_else(!is.na(.data$bmi) & .data$bmi >= 30, 1, 0)
   )
 
 # Alias map and resolve
@@ -1087,7 +1089,7 @@ fit_adj_logistic <- function(df, outcome_col, stage_col, covar_col) {
 
 col_stage <- resolve_or_identity(df, "stage_early")
 col_y     <- resolve_or_identity(df, "response_achieved")
-covars <- c("age","sex","bmi","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","final_dose_mg_m2")
+covars <- c("age","sex","bmi","overweight","obese","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","final_dose_mg_m2")
 covars <- covars[covars %in% names(df)]
 
 adj_spec <- tidyr::expand_grid(Outcomes = col_y, Covariate = covars) |>
@@ -1276,6 +1278,20 @@ p_mono_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "mon
 if (!inherits(p_mono_adj, "try-error") && !is.null(p_mono_adj)) print(p_mono_adj) else cat("No data for monotherapy.\n")
 ```
 
+##### overweight  {.unnumbered}  
+
+```{r adjusted_plots_overweight, message=FALSE, warning=FALSE}
+p_overweight_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "overweight")), silent = TRUE)
+if (!inherits(p_overweight_adj, "try-error") && !is.null(p_overweight_adj)) print(p_overweight_adj) else cat("No data for overweight.\n")
+```
+
+##### obese  {.unnumbered}  
+
+```{r adjusted_plots_obese, message=FALSE, warning=FALSE}
+p_obese_adj <- try(plot_stacked_by_stage(df, covar = resolve_or_identity(df, "obese")), silent = TRUE)
+if (!inherits(p_obese_adj, "try-error") && !is.null(p_obese_adj)) print(p_obese_adj) else cat("No data for obese.\n")
+```
+
 ##### ae_grade_3_4  {.unnumbered}  
 
 ```{r adjusted_plots_ae, message=FALSE, warning=FALSE}
@@ -1298,7 +1314,7 @@ Where: beta_0 is the intercept (expected outcome when stage_early = 0 and the co
 # Adjusted linear models: response_time_to_2 ~ stage_early + covariate (y > 0)
 col_stage <- resolve_or_identity(df, "stage_early")
 col_lin   <- resolve_or_identity(df, "response_time_to_2")
-covars_lin <- c("age","sex","bmi","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","final_dose_mg_m2")
+covars_lin <- c("age","sex","bmi","overweight","obese","ps_ecog","first_syst_th","monotherapy","ae_grade_3_4","final_dose_mg_m2")
 covars_lin <- covars_lin[covars_lin %in% names(df)]
 
 fit_adj_linear <- function(df, outcome_col, stage_col, covar_col) {
@@ -1651,7 +1667,7 @@ endpoints <- list(
   list(label = 'disease_control_duration', time = 'disease_control_duration', event = 'progression')
 )
 
-covars_surv <- c('age','sex','bmi','ps_ecog','first_syst_th','monotherapy','ae_grade_3_4','final_dose_mg_m2')
+covars_surv <- c('age','sex','bmi','overweight','obese','ps_ecog','first_syst_th','monotherapy','ae_grade_3_4','final_dose_mg_m2')
 covars_surv <- covars_surv[covars_surv %in% names(df)]
 
 fit_adj_cox_app <- function(df, spec, stage_col, covar_col) {
